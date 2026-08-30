@@ -1,0 +1,7 @@
+(
+echo node_modules/
+echo dist/
+echo .angular/
+echo .env
+echo *.log
+) > .gitignore
