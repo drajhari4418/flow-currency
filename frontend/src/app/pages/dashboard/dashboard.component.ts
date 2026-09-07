@@ -1,10 +1,10 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { SupabaseService } from '../../services/supabase.service';
-import { TaskService, Task } from '../../services/task.service';
-import { ConversionService, ConversionStats } from '../../services/conversion.service';
+import { TaskService, Task, TaskPriority } from '../../services/task.service';
+import { ConversionService, ConversionStats, ConversionRow } from '../../services/conversion.service';
 import { ThemeService } from '../../services/theme.service';
 
 @Component({
@@ -33,9 +33,7 @@ import { ThemeService } from '../../services/theme.service';
         <div class="error-msg">{{ errorMsg() }}</div>
       }
 
-      <!-- ===== Currency conversion overview — pulled onto the main dashboard
-           so the todo list's landing page also reflects conversion activity,
-           instead of that data living only on the separate /currency page. -->
+      <!-- ===== Currency conversion overview ===== -->
       <div class="section-title">Currency Overview</div>
       @if (statsLoading()) {
         <div class="empty-state" style="padding:16px 0;">Loading conversion stats…</div>
@@ -85,8 +83,20 @@ import { ThemeService } from '../../services/theme.service';
         }
       }
 
-      <!-- ===== Tasks (todo list) ===== -->
+      <!-- ===== Tasks ===== -->
       <div class="section-title" style="margin-top:32px;">Tasks</div>
+
+      @if (!loading() && tasks().length > 0) {
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>{{ completedCount() }} of {{ tasks().length }} tasks completed</span>
+            <span>{{ progressPercent() }}%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" [style.width.%]="progressPercent()"></div>
+          </div>
+        </div>
+      }
 
       <form class="task-form" (ngSubmit)="addTask()">
         <input
@@ -95,6 +105,17 @@ import { ThemeService } from '../../services/theme.service';
           placeholder="What needs doing?"
           [(ngModel)]="newTitle"
           required
+        />
+        <select name="newPriority" [(ngModel)]="newPriority" class="priority-select">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+        <input
+          type="date"
+          name="newDueDate"
+          [(ngModel)]="newDueDate"
+          class="due-date-input"
         />
         <button class="primary" style="width:auto;" type="submit" [disabled]="adding()">
           {{ adding() ? 'Adding…' : 'Add' }}
@@ -106,15 +127,27 @@ import { ThemeService } from '../../services/theme.service';
       } @else if (tasks().length === 0) {
         <div class="empty-state">No tasks yet — add your first one above.</div>
       } @else {
-        <ul class="task-list">
+        <div class="task-card-grid">
           @for (task of tasks(); track task.id) {
-            <li class="task-item" [class.done]="task.is_complete">
-              <input type="checkbox" [checked]="task.is_complete" (change)="toggle(task)" />
-              <span class="task-title">{{ task.title }}</span>
-              <button class="delete" (click)="remove(task)">Delete</button>
-            </li>
+            <div class="task-card" [class.done]="task.is_complete" [class.priority-low]="task.priority === 'low'" [class.priority-medium]="task.priority === 'medium'" [class.priority-high]="task.priority === 'high'">
+              <div class="task-card-top">
+                <input type="checkbox" [checked]="task.is_complete" (change)="toggle(task)" />
+                <span class="task-title">{{ task.title }}</span>
+                <button class="delete" (click)="remove(task)" title="Delete task">✕</button>
+              </div>
+              <div class="task-card-meta">
+                <span class="badge" [class.badge-low]="task.priority === 'low'" [class.badge-medium]="task.priority === 'medium'" [class.badge-high]="task.priority === 'high'">
+                  {{ task.priority }}
+                </span>
+                @if (task.due_date) {
+                  <span class="badge badge-due" [class.badge-overdue]="isOverdue(task)">
+                    {{ isOverdue(task) ? 'Overdue · ' : '' }}{{ task.due_date | date:'MMM d' }}
+                  </span>
+                }
+              </div>
+            </div>
           }
-        </ul>
+        </div>
       }
     </div>
 
@@ -126,8 +159,18 @@ export class DashboardComponent implements OnInit {
   loading = signal(true);
   adding = signal(false);
   errorMsg = signal<string | null>(null);
+
   newTitle = '';
+  newPriority: TaskPriority = 'medium';
+  newDueDate: string | null = null;
+
   userEmail: string | null = null;
+
+  completedCount = computed(() => this.tasks().filter((t) => t.is_complete).length);
+  progressPercent = computed(() => {
+    const total = this.tasks().length;
+    return total === 0 ? 0 : Math.round((this.completedCount() / total) * 100);
+  });
 
   stats = signal<ConversionStats>({
     total: 0,
@@ -135,7 +178,7 @@ export class DashboardComponent implements OnInit {
     favoriteCurrency: '—',
     lastConversion: '—',
   });
-  recentConversions = signal<import('../../services/conversion.service').ConversionRow[]>([]);
+  recentConversions = signal<ConversionRow[]>([]);
   statsLoading = signal(true);
 
   constructor(
@@ -181,10 +224,12 @@ export class DashboardComponent implements OnInit {
     if (!this.newTitle.trim()) return;
     this.adding.set(true);
 
-    this.taskService.create(this.newTitle.trim()).subscribe({
+    this.taskService.create(this.newTitle.trim(), this.newPriority, this.newDueDate).subscribe({
       next: (task) => {
         this.tasks.update((list) => [task, ...list]);
         this.newTitle = '';
+        this.newPriority = 'medium';
+        this.newDueDate = null;
         this.adding.set(false);
       },
       error: () => {
@@ -208,6 +253,13 @@ export class DashboardComponent implements OnInit {
         this.tasks.update((list) => list.filter((t) => t.id !== task.id));
       },
     });
+  }
+
+  isOverdue(task: Task): boolean {
+    if (!task.due_date || task.is_complete) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(task.due_date) < today;
   }
 
   async logout() {

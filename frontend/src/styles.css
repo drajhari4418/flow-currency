@@ -15,6 +15,13 @@
   --success-text: #047857;
   --table-head-bg: #f8f9fa;
   --shadow: rgba(0, 0, 0, 0.06);
+
+  --low: #16a34a;
+  --low-bg: #dcfce7;
+  --medium: #d97706;
+  --medium-bg: #fef3c7;
+  --high: #dc2626;
+  --high-bg: #fee2e2;
 }
 
 body.dark-theme {
@@ -31,6 +38,13 @@ body.dark-theme {
   --success-text: #6ee7b7;
   --table-head-bg: #232640;
   --shadow: rgba(0, 0, 0, 0.35);
+
+  --low: #4ade80;
+  --low-bg: #163a26;
+  --medium: #fbbf24;
+  --medium-bg: #3a2c0f;
+  --high: #f87171;
+  --high-bg: #3a1418;
 }
 
 body {
@@ -58,28 +72,11 @@ body {
   max-width: 380px;
 }
 
-.auth-card h1 {
-  font-size: 22px;
-  margin: 0 0 4px;
-}
+.auth-card h1 { font-size: 22px; margin: 0 0 4px; }
+.auth-card p.subtitle { color: var(--text-muted); margin: 0 0 24px; font-size: 14px; }
 
-.auth-card p.subtitle {
-  color: var(--text-muted);
-  margin: 0 0 24px;
-  font-size: 14px;
-}
-
-.field {
-  margin-bottom: 16px;
-}
-
-.field label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .field input {
   width: 100%;
   padding: 10px 12px;
@@ -89,11 +86,7 @@ body {
   background: var(--card-bg);
   color: var(--text);
 }
-
-.field input:focus {
-  outline: none;
-  border-color: var(--primary);
-}
+.field input:focus { outline: none; border-color: var(--primary); }
 
 button.primary {
   width: 100%;
@@ -106,11 +99,7 @@ button.primary {
   font-weight: 600;
   cursor: pointer;
 }
-
-button.primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 button.secondary {
   background: transparent;
@@ -122,7 +111,6 @@ button.secondary {
   font-size: 13px;
 }
 
-/* Light/dark toggle button */
 .theme-toggle {
   background: transparent;
   border: 1px solid var(--border);
@@ -142,24 +130,10 @@ button.secondary {
   margin-bottom: 16px;
 }
 
-.switch-link {
-  text-align: center;
-  margin-top: 18px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
+.switch-link { text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-muted); }
+.switch-link a { color: var(--primary); cursor: pointer; font-weight: 600; }
 
-.switch-link a {
-  color: var(--primary);
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.dashboard {
-  max-width: 780px;
-  margin: 0 auto;
-  padding: 32px 16px 8px;
-}
+.dashboard { max-width: 820px; margin: 0 auto; padding: 32px 16px 8px; }
 
 .dashboard-header {
   display: flex;
@@ -169,25 +143,18 @@ button.secondary {
   flex-wrap: wrap;
   gap: 12px;
 }
-
 .dashboard-header h1 { font-size: 20px; margin: 0; }
 .dashboard-header .email { font-size: 13px; color: var(--text-muted); }
 
-.section-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 14px;
-}
+.section-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
 
-/* ===== Currency overview stat cards (shown on the dashboard) ===== */
+/* ===== Currency overview stat cards ===== */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
   margin-bottom: 20px;
 }
-
 .stat-card {
   background: var(--card-bg);
   border-left: 4px solid var(--primary);
@@ -195,96 +162,118 @@ button.secondary {
   padding: 14px 16px;
   box-shadow: 0 1px 3px var(--shadow);
 }
+.stat-card .stat-value { font-size: 1.4rem; font-weight: 700; color: var(--text); margin-bottom: 4px; word-break: break-word; }
+.stat-card .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 
-.stat-card .stat-value {
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 4px;
-  word-break: break-word;
-}
+.history-table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 8px; }
+table.history-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--card-bg); }
+table.history-table th, table.history-table td { padding: 10px 14px; text-align: left; white-space: nowrap; color: var(--text); }
+table.history-table thead th { background: var(--table-head-bg); color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+table.history-table tbody tr { border-top: 1px solid var(--border); }
 
-.stat-card .stat-label {
-  font-size: 0.75rem;
+/* ===== Task progress bar ===== */
+.progress-wrap { margin-bottom: 18px; }
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  margin-bottom: 6px;
 }
-
-.history-table-wrap {
-  overflow-x: auto;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  margin-bottom: 8px;
-}
-
-table.history-table {
+.progress-track {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-  background: var(--card-bg);
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 0.25s ease;
 }
 
-table.history-table th, table.history-table td {
-  padding: 10px 14px;
-  text-align: left;
-  white-space: nowrap;
-  color: var(--text);
-}
-
-table.history-table thead th {
-  background: var(--table-head-bg);
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-table.history-table tbody tr {
-  border-top: 1px solid var(--border);
-}
-
+/* ===== Task form (title + priority + due date + add button) ===== */
 .task-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 24px;
 }
-
-.task-form input {
+.task-form input[type="text"] {
   flex: 1;
+  min-width: 160px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card-bg);
   color: var(--text);
 }
-
-.task-list { list-style: none; padding: 0; margin: 0; }
-
-.task-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.priority-select,
+.due-date-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   background: var(--card-bg);
-  padding: 14px 16px;
-  border-radius: 10px;
-  margin-bottom: 8px;
-  box-shadow: 0 1px 3px var(--shadow);
+  color: var(--text);
+  font-size: 14px;
 }
 
-.task-item.done .task-title { text-decoration: line-through; color: var(--text-muted); }
-.task-title { flex: 1; font-size: 14px; }
-.task-item button.delete {
+/* ===== Card-based task list ===== */
+.task-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.task-card {
+  background: var(--card-bg);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 1px 3px var(--shadow);
+  border-left: 4px solid var(--border);
+}
+.task-card.priority-low { border-left-color: var(--low); }
+.task-card.priority-medium { border-left-color: var(--medium); }
+.task-card.priority-high { border-left-color: var(--high); }
+
+.task-card.done { opacity: 0.65; }
+.task-card.done .task-title { text-decoration: line-through; color: var(--text-muted); }
+
+.task-card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.task-title { flex: 1; font-size: 14.5px; font-weight: 500; word-break: break-word; }
+
+.task-card button.delete {
   background: none;
   border: none;
-  color: #ef4444;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 13px;
+  padding: 2px 4px;
 }
+.task-card button.delete:hover { color: #ef4444; }
+
+.task-card-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.badge-low { color: var(--low); background: var(--low-bg); }
+.badge-medium { color: var(--medium); background: var(--medium-bg); }
+.badge-high { color: var(--high); background: var(--high-bg); }
+.badge-due { color: var(--text-muted); background: var(--table-head-bg); text-transform: none; letter-spacing: 0; }
+.badge-overdue { color: var(--high); background: var(--high-bg); }
 
 .empty-state { text-align: center; color: var(--text-muted); padding: 24px 0; font-size: 14px; }
 
-/* ===== Static footer, shown on every page ===== */
+/* ===== Static footer ===== */
 .app-footer {
   text-align: center;
   padding: 20px 16px 28px;
