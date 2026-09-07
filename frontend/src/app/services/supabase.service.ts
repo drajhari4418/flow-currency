@@ -43,4 +43,20 @@ export class SupabaseService {
   currentUserEmail(): string | null {
     return this.session()?.user?.email ?? null;
   }
+
+  currentUserId(): string | null {
+    return this.session()?.user?.id ?? null;
+  }
+
+  /**
+   * Exposes the underlying Supabase client so other services (e.g.
+   * ConversionService) can query tables directly with the user's own
+   * session — respecting Row Level Security — without going through
+   * the Node backend. Only use this for data that doesn't need the
+   * backend's business logic (the "tasks" table still goes through
+   * TaskService -> Express -> supabaseAdmin).
+   */
+  getClient(): SupabaseClient {
+    return this.client;
+  }
 }

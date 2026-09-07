@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CurrencyService, CurrencyList } from '../../services/currency.service';
+import { ConversionService } from '../../services/conversion.service';
+import { ThemeService } from '../../services/theme.service';
 
 interface ConversionEntry {
   amount: number;
@@ -23,9 +25,14 @@ interface ConversionEntry {
           <h1>Currency Converter</h1>
           <div class="email">Live rates via Frankfurter (ECB)</div>
         </div>
-        <a class="secondary" style="text-decoration:none;padding:8px 14px;" [routerLink]="['/dashboard']">
-          &larr; Back to tasks
-        </a>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="theme-toggle" (click)="theme.toggle()" [title]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
+            {{ theme.isDark() ? '☀️' : '🌙' }}
+          </button>
+          <a class="secondary" style="text-decoration:none;padding:8px 14px;" [routerLink]="['/dashboard']">
+            &larr; Back to dashboard
+          </a>
+        </div>
       </div>
 
       @if (errorMsg()) {
@@ -49,7 +56,7 @@ interface ConversionEntry {
         <div style="display:flex; gap:12px; margin-bottom:16px;">
           <div class="field" style="flex:1; margin-bottom:0;">
             <label for="from">From</label>
-            <select id="from" name="from" [(ngModel)]="fromCurrency" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px;">
+            <select id="from" name="from" [(ngModel)]="fromCurrency" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px;">
               @for (code of currencyCodes(); track code) {
                 <option [value]="code">{{ code }} — {{ currencies()[code] }}</option>
               }
@@ -68,7 +75,7 @@ interface ConversionEntry {
 
           <div class="field" style="flex:1; margin-bottom:0;">
             <label for="to">To</label>
-            <select id="to" name="to" [(ngModel)]="toCurrency" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px;">
+            <select id="to" name="to" [(ngModel)]="toCurrency" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px;">
               @for (code of currencyCodes(); track code) {
                 <option [value]="code">{{ code }} — {{ currencies()[code] }}</option>
               }
@@ -88,7 +95,7 @@ interface ConversionEntry {
               <span class="task-title">
                 {{ entry.amount | number:'1.2-2' }} {{ entry.from }} = <strong>{{ entry.result | number:'1.2-2' }} {{ entry.to }}</strong>
               </span>
-              <span style="font-size:12px; color:#9ca3af;">{{ entry.date }}</span>
+              <span style="font-size:12px; color:var(--text-muted);">{{ entry.date }}</span>
             </li>
           }
         </ul>
@@ -96,6 +103,8 @@ interface ConversionEntry {
         <div class="empty-state">No conversions yet — enter an amount above and hit Convert & Add.</div>
       }
     </div>
+
+    <footer class="app-footer">Created and Developed by <strong>Dushyant Kaushik</strong></footer>
   `,
 })
 export class CurrencyConverterComponent implements OnInit {
@@ -110,7 +119,11 @@ export class CurrencyConverterComponent implements OnInit {
   converting = signal(false);
   errorMsg = signal<string | null>(null);
 
-  constructor(private currencyService: CurrencyService) {}
+  constructor(
+    private currencyService: CurrencyService,
+    private conversionService: ConversionService,
+    public theme: ThemeService
+  ) {}
 
   ngOnInit() {
     this.currencyService.getCurrencies().subscribe({
@@ -146,6 +159,7 @@ export class CurrencyConverterComponent implements OnInit {
     this.currencyService.convert(this.amount, this.fromCurrency, this.toCurrency).subscribe({
       next: (res) => {
         const result = res.rates[this.toCurrency];
+
         this.history.update((list) => [
           {
             amount: this.amount!,
@@ -156,6 +170,11 @@ export class CurrencyConverterComponent implements OnInit {
           },
           ...list,
         ]);
+
+        // Persist to Supabase (best-effort, non-blocking) so the dashboard's
+        // "Currency Overview" reflects this conversion too.
+        this.conversionService.logConversion(this.amount!, this.fromCurrency, this.toCurrency, result);
+
         this.converting.set(false);
       },
       error: () => {
