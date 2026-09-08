@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const tasksRouter = require('./routes/tasks');
+const aiRouter = require('./routes/ai');
 
 const app = express();
 
@@ -12,6 +13,7 @@ app.use(express.json());
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/tasks', tasksRouter);
+app.use('/api/ai', aiRouter);
 
 // Basic error handler
 app.use((err, req, res, next) => {
