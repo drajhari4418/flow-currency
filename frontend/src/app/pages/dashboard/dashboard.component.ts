@@ -6,6 +6,9 @@ import { SupabaseService } from '../../services/supabase.service';
 import { TaskService, Task, TaskPriority } from '../../services/task.service';
 import { ConversionService, ConversionStats, ConversionRow } from '../../services/conversion.service';
 import { ThemeService } from '../../services/theme.service';
+import { AiConversionService } from '../../services/ai-conversion.service';
+import { parseCurrencyRequest } from '../../utils/currency-request-parser';
+import { firstValueFrom } from 'rxjs';
 
 @Component({
   selector: 'app-dashboard',
@@ -33,8 +36,34 @@ import { ThemeService } from '../../services/theme.service';
         <div class="error-msg">{{ errorMsg() }}</div>
       }
 
+      <!-- ===== Quick Convert — parsed by Claude (Anthropic API) on the
+           backend, with a plain-regex parser as an offline/error fallback. -->
+      <div class="section-title" style="display:flex; align-items:center; gap:8px;">
+        Quick Convert
+        <span class="ai-badge">✨ AI-powered</span>
+      </div>
+      <form class="quick-convert-form" (ngSubmit)="submitQuickConvert()">
+        <input
+          type="text"
+          name="quickConvertText"
+          placeholder='e.g. "Convert 500 dollars to euros"'
+          [(ngModel)]="quickConvertText"
+          [disabled]="quickConvertLoading()"
+        />
+        <button class="primary" style="width:auto;" type="submit" [disabled]="quickConvertLoading()">
+          {{ quickConvertLoading() ? 'Asking AI…' : 'Convert' }}
+        </button>
+      </form>
+      @if (quickConvertError()) {
+        <div class="error-msg">{{ quickConvertError() }}</div>
+      }
+      <div class="hint-text">
+        Your request is sent to Claude to understand the amount and currencies —
+        even loosely-worded requests like "change 20 bucks into yen" should work.
+      </div>
+
       <!-- ===== Currency conversion overview ===== -->
-      <div class="section-title">Currency Overview</div>
+      <div class="section-title" style="margin-top:28px;">Currency Overview</div>
       @if (statsLoading()) {
         <div class="empty-state" style="padding:16px 0;">Loading conversion stats…</div>
       } @else {
@@ -78,7 +107,8 @@ import { ThemeService } from '../../services/theme.service';
           </div>
         } @else {
           <div class="empty-state">
-            No conversions yet. Head to the <a [routerLink]="['/currency']">currency converter</a> to make your first one.
+            No conversions yet. Use Quick Convert above or head to the
+            <a [routerLink]="['/currency']">currency converter</a> to make your first one.
           </div>
         }
       }
@@ -111,12 +141,7 @@ import { ThemeService } from '../../services/theme.service';
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </select>
-        <input
-          type="date"
-          name="newDueDate"
-          [(ngModel)]="newDueDate"
-          class="due-date-input"
-        />
+        <input type="date" name="newDueDate" [(ngModel)]="newDueDate" class="due-date-input" />
         <button class="primary" style="width:auto;" type="submit" [disabled]="adding()">
           {{ adding() ? 'Adding…' : 'Add' }}
         </button>
@@ -164,6 +189,10 @@ export class DashboardComponent implements OnInit {
   newPriority: TaskPriority = 'medium';
   newDueDate: string | null = null;
 
+  quickConvertText = '';
+  quickConvertError = signal<string | null>(null);
+  quickConvertLoading = signal(false);
+
   userEmail: string | null = null;
 
   completedCount = computed(() => this.tasks().filter((t) => t.is_complete).length);
@@ -185,6 +214,7 @@ export class DashboardComponent implements OnInit {
     private taskService: TaskService,
     private supabase: SupabaseService,
     private conversionService: ConversionService,
+    private aiConversionService: AiConversionService,
     public theme: ThemeService,
     private router: Router
   ) {}
@@ -218,6 +248,51 @@ export class DashboardComponent implements OnInit {
     this.stats.set(stats);
     this.recentConversions.set(history);
     this.statsLoading.set(false);
+  }
+
+  /**
+   * Understands the free-text request with Claude first (handles loose
+   * phrasing like "change 20 bucks into yen"). If the AI call fails for any
+   * reason (network issue, missing API key, etc.) it falls back to the
+   * plain regex parser, so Quick Convert still works without AI configured.
+   * Either way, once amount/from/to are known, it redirects to /currency
+   * with those values attached, exactly as before.
+   */
+  async submitQuickConvert() {
+    this.quickConvertError.set(null);
+    const text = this.quickConvertText.trim();
+    if (!text) {
+      this.quickConvertError.set('Type a request first, e.g. "Convert 500 USD to EUR".');
+      return;
+    }
+
+    this.quickConvertLoading.set(true);
+
+    try {
+      const ai = await firstValueFrom(this.aiConversionService.parseConversionRequest(text));
+      this.goToConverter(ai.amount, ai.from, ai.to);
+      return;
+    } catch (err: any) {
+      console.warn('AI parsing failed, falling back to regex parser:', err?.error?.error || err);
+    } finally {
+      this.quickConvertLoading.set(false);
+    }
+
+    // Fallback: local regex extraction (no AI, no network round trip).
+    const parsed = parseCurrencyRequest(text);
+    if (!parsed) {
+      this.quickConvertError.set(
+        'Couldn\'t understand that request. Try something like "Convert 500 USD to EUR".'
+      );
+      return;
+    }
+    this.goToConverter(parsed.amount, parsed.fromRaw, parsed.toRaw);
+  }
+
+  private goToConverter(amount: number, from: string, to: string) {
+    this.router.navigate(['/currency'], {
+      queryParams: { amount, from, to, auto: '1' },
+    });
   }
 
   addTask() {

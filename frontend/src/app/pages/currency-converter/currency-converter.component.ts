@@ -1,7 +1,7 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CurrencyService, CurrencyList } from '../../services/currency.service';
 import { ConversionService } from '../../services/conversion.service';
 import { ThemeService } from '../../services/theme.service';
@@ -13,6 +13,37 @@ interface ConversionEntry {
   result: number;
   date: string;
 }
+
+// Common natural-language names/aliases for the currencies Frankfurter (ECB)
+// supports, so a Quick Convert request like "500 dollars to euros" resolves
+// to USD -> EUR even though the user never typed a currency code. This is
+// the offline fallback path; the AI path on the dashboard already resolves
+// names via Claude before ever reaching this page.
+const CURRENCY_ALIASES: Record<string, string> = {
+  dollar: 'USD', dollars: 'USD', usd: 'USD', 'us dollar': 'USD', 'us dollars': 'USD',
+  euro: 'EUR', euros: 'EUR', eur: 'EUR',
+  pound: 'GBP', pounds: 'GBP', sterling: 'GBP', gbp: 'GBP',
+  yen: 'JPY', jpy: 'JPY',
+  rupee: 'INR', rupees: 'INR', inr: 'INR',
+  yuan: 'CNY', rmb: 'CNY', cny: 'CNY',
+  franc: 'CHF', francs: 'CHF', chf: 'CHF',
+  real: 'BRL', reais: 'BRL', brl: 'BRL',
+  won: 'KRW', krw: 'KRW',
+  rand: 'ZAR', zar: 'ZAR',
+  peso: 'MXN', pesos: 'MXN', mxn: 'MXN',
+  ringgit: 'MYR', myr: 'MYR',
+  baht: 'THB', thb: 'THB',
+  krone: 'NOK', kroner: 'NOK', nok: 'NOK',
+  krona: 'SEK', kronor: 'SEK', sek: 'SEK',
+  zloty: 'PLN', pln: 'PLN',
+  lira: 'TRY', try: 'TRY',
+  shekel: 'ILS', shekels: 'ILS', ils: 'ILS',
+  'hong kong dollar': 'HKD', hkd: 'HKD',
+  'singapore dollar': 'SGD', sgd: 'SGD',
+  'new zealand dollar': 'NZD', nzd: 'NZD',
+  'australian dollar': 'AUD', aud: 'AUD',
+  'canadian dollar': 'CAD', cad: 'CAD',
+};
 
 @Component({
   selector: 'app-currency-converter',
@@ -35,6 +66,11 @@ interface ConversionEntry {
         </div>
       </div>
 
+      @if (autoConvertNotice()) {
+        <div class="error-msg" style="background:var(--success-bg); color:var(--success-text);">
+          {{ autoConvertNotice() }}
+        </div>
+      }
       @if (errorMsg()) {
         <div class="error-msg">{{ errorMsg() }}</div>
       }
@@ -63,13 +99,7 @@ interface ConversionEntry {
             </select>
           </div>
 
-          <button
-            type="button"
-            class="secondary"
-            style="align-self:flex-end; margin-bottom:0; height:41px;"
-            (click)="swap()"
-            title="Swap currencies"
-          >
+          <button type="button" class="secondary" style="align-self:flex-end; margin-bottom:0; height:41px;" (click)="swap()" title="Swap currencies">
             ⇄
           </button>
 
@@ -118,10 +148,13 @@ export class CurrencyConverterComponent implements OnInit {
 
   converting = signal(false);
   errorMsg = signal<string | null>(null);
+  autoConvertNotice = signal<string | null>(null);
 
   constructor(
     private currencyService: CurrencyService,
     private conversionService: ConversionService,
+    private route: ActivatedRoute,
+    private router: Router,
     public theme: ThemeService
   ) {}
 
@@ -130,11 +163,76 @@ export class CurrencyConverterComponent implements OnInit {
       next: (list) => {
         this.currencies.set(list);
         this.currencyCodes.set(Object.keys(list).sort());
+
+        // If we arrived here from the dashboard's Quick Convert box, the
+        // amount/from/to arrive as raw query params — resolve and run them
+        // now that the full currency list is loaded.
+        this.handleIncomingQuickConvert();
       },
       error: () => {
         this.errorMsg.set('Could not load the currency list. Check your internet connection.');
       },
     });
+  }
+
+  private handleIncomingQuickConvert() {
+    const params = this.route.snapshot.queryParamMap;
+    if (params.get('auto') !== '1') return;
+
+    const rawAmount = params.get('amount');
+    const rawFrom = params.get('from');
+    const rawTo = params.get('to');
+
+    const amount = rawAmount ? parseFloat(rawAmount) : NaN;
+    const fromCode = rawFrom ? this.resolveCurrencyCode(rawFrom) : null;
+    const toCode = rawTo ? this.resolveCurrencyCode(rawTo) : null;
+
+    // Clear the query params from the URL either way, so a page refresh
+    // doesn't silently re-trigger the same conversion.
+    this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+
+    if (!amount || amount <= 0 || !fromCode || !toCode) {
+      const unresolved = [
+        !fromCode ? `"${rawFrom}"` : null,
+        !toCode ? `"${rawTo}"` : null,
+      ].filter(Boolean).join(' and ');
+
+      this.errorMsg.set(
+        unresolved
+          ? `Couldn't recognize ${unresolved} as a currency. Please pick manually below.`
+          : "That request wasn't quite complete — please fill in the fields below."
+      );
+      return;
+    }
+
+    this.amount = amount;
+    this.fromCurrency = fromCode;
+    this.toCurrency = toCode;
+    this.autoConvertNotice.set(
+      `Reflecting your request: converting ${amount} ${fromCode} to ${toCode}…`
+    );
+    this.convertAndAdd();
+  }
+
+  /** Resolves a code ("usd"), an alias ("dollars"), or a full name into a
+   * currency code that's actually in the loaded currency list. */
+  private resolveCurrencyCode(raw: string): string | null {
+    const normalized = raw.trim().toLowerCase();
+    const asCode = normalized.toUpperCase();
+
+    if (/^[A-Z]{3}$/.test(asCode) && this.currencies()[asCode]) {
+      return asCode;
+    }
+
+    const aliasCode = CURRENCY_ALIASES[normalized];
+    if (aliasCode && this.currencies()[aliasCode]) {
+      return aliasCode;
+    }
+
+    const match = Object.entries(this.currencies()).find(([, name]) =>
+      name.toLowerCase().includes(normalized)
+    );
+    return match ? match[0] : null;
   }
 
   swap() {
@@ -176,10 +274,12 @@ export class CurrencyConverterComponent implements OnInit {
         this.conversionService.logConversion(this.amount!, this.fromCurrency, this.toCurrency, result);
 
         this.converting.set(false);
+        this.autoConvertNotice.set(null);
       },
       error: () => {
         this.errorMsg.set('Conversion failed. The rates API may be temporarily unavailable.');
         this.converting.set(false);
+        this.autoConvertNotice.set(null);
       },
     });
   }

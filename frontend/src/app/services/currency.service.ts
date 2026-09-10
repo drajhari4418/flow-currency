@@ -29,10 +29,10 @@ export class CurrencyService {
 
   convert(amount: number, from: string, to: string): Observable<ConversionResult> {
     const params = new URLSearchParams({
-  amount: amount.toString(),
-  base: from,
-  symbols: to,
-});
+      amount: amount.toString(),
+      base: from,
+      symbols: to,
+    });
     return this.http.get<ConversionResult>(`${BASE_URL}/latest?${params.toString()}`);
   }
 }
