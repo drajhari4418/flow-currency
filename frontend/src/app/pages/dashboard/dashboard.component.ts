@@ -7,6 +7,7 @@ import { TaskService, Task, TaskPriority } from '../../services/task.service';
 import { ConversionService, ConversionStats, ConversionRow } from '../../services/conversion.service';
 import { ThemeService } from '../../services/theme.service';
 import { AiConversionService } from '../../services/ai-conversion.service';
+import { CurrencyService, CurrencyList } from '../../services/currency.service';
 import { parseCurrencyRequest } from '../../utils/currency-request-parser';
 import { firstValueFrom } from 'rxjs';
 
@@ -43,13 +44,34 @@ import { firstValueFrom } from 'rxjs';
         <span class="ai-badge">✨ AI-powered</span>
       </div>
       <form class="quick-convert-form" (ngSubmit)="submitQuickConvert()">
-        <input
-          type="text"
-          name="quickConvertText"
-          placeholder='e.g. "Convert 500 dollars to euros"'
-          [(ngModel)]="quickConvertText"
-          [disabled]="quickConvertLoading()"
-        />
+        <div class="quick-convert-input-wrap">
+          <input
+            type="text"
+            name="quickConvertText"
+            placeholder='e.g. "Convert 500 dollars to euros"'
+            [(ngModel)]="quickConvertText"
+            [disabled]="quickConvertLoading()"
+            autocomplete="off"
+            (focus)="openCurrencyPicker()"
+            (blur)="closeCurrencyPicker()"
+          />
+
+          @if (quickCurrencyPickerOpen() && filteredQuickCurrencies().length > 0) {
+            <div class="quick-currency-dropdown">
+              <div class="quick-currency-dropdown-title">Choose a currency</div>
+              @for (code of filteredQuickCurrencies(); track code) {
+                <button
+                  type="button"
+                  class="quick-currency-option"
+                  (mousedown)="selectQuickCurrency(code); $event.preventDefault()"
+                >
+                  <strong>{{ code }}</strong>
+                  <span>{{ quickCurrencies()[code] }}</span>
+                </button>
+              }
+            </div>
+          }
+        </div>
         <button class="primary" style="width:auto;" type="submit" [disabled]="quickConvertLoading()">
           {{ quickConvertLoading() ? 'Asking AI…' : 'Convert' }}
         </button>
@@ -90,7 +112,7 @@ import { firstValueFrom } from 'rxjs';
           <div class="history-table-wrap">
             <table class="history-table">
               <thead>
-                <tr><th>Date</th><th>Amount</th><th>From</th><th>To</th><th>Result</th></tr>
+                <tr><th>Date</th><th>Amount</th><th>From</th><th>To</th><th>Result</th><th>Action</th></tr>
               </thead>
               <tbody>
                 @for (row of recentConversions(); track row.id) {
@@ -100,6 +122,18 @@ import { firstValueFrom } from 'rxjs';
                     <td>{{ row.from_currency }}</td>
                     <td>{{ row.to_currency }}</td>
                     <td>{{ row.result | number:'1.2-2' }}</td>
+                    <td>
+                      <button
+                        type="button"
+                        class="delete"
+                        (click)="removeConversion(row)"
+                        [disabled]="deletingConversionId() === row.id"
+                        title="Delete conversion"
+                        aria-label="Delete conversion"
+                      >
+                        {{ deletingConversionId() === row.id ? '…' : '✕' }}
+                      </button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -193,6 +227,25 @@ export class DashboardComponent implements OnInit {
   quickConvertError = signal<string | null>(null);
   quickConvertLoading = signal(false);
 
+  // The same live currency list used by the full converter is exposed here
+  // as an autocomplete picker inside the Dashboard's natural-language box.
+  quickCurrencies = signal<CurrencyList>({});
+  quickCurrencyCodes = signal<string[]>([]);
+  quickCurrencyPickerOpen = signal(false);
+  filteredQuickCurrencies = computed(() => {
+    const text = this.quickConvertText.trim().toLowerCase();
+    const connectorMatch = text.match(/(?:\bto\b|\binto\b|\bfor\b)\s*([^\s.!?]*)$/i);
+    const amountMatch = text.match(/(?:^|\s)([\d,]+(?:\.\d+)?)\s+([^\s.!?]*)$/i);
+    const search = connectorMatch?.[1] || amountMatch?.[2] || '';
+    const q = search.trim();
+
+    return this.quickCurrencyCodes().filter((code) => {
+      if (!q) return true;
+      const name = this.quickCurrencies()[code]?.toLowerCase() || '';
+      return code.toLowerCase().includes(q) || name.includes(q);
+    }).slice(0, 12);
+  });
+
   userEmail: string | null = null;
 
   completedCount = computed(() => this.tasks().filter((t) => t.is_complete).length);
@@ -208,6 +261,7 @@ export class DashboardComponent implements OnInit {
     lastConversion: '—',
   });
   recentConversions = signal<ConversionRow[]>([]);
+  deletingConversionId = signal<number | null>(null);
   statsLoading = signal(true);
 
   constructor(
@@ -215,6 +269,7 @@ export class DashboardComponent implements OnInit {
     private supabase: SupabaseService,
     private conversionService: ConversionService,
     private aiConversionService: AiConversionService,
+    private currencyService: CurrencyService,
     public theme: ThemeService,
     private router: Router
   ) {}
@@ -223,6 +278,47 @@ export class DashboardComponent implements OnInit {
     this.userEmail = this.supabase.currentUserEmail();
     this.fetchTasks();
     this.fetchConversionOverview();
+    this.loadQuickCurrencies();
+  }
+
+  private loadQuickCurrencies() {
+    this.currencyService.getCurrencies().subscribe({
+      next: (list) => {
+        this.quickCurrencies.set(list);
+        this.quickCurrencyCodes.set(Object.keys(list).sort());
+      },
+      error: () => {
+        // The picker is only an enhancement. Quick Convert still works via
+        // Claude and the existing offline parser if the list API is down.
+        this.quickCurrencies.set({});
+        this.quickCurrencyCodes.set([]);
+      },
+    });
+  }
+
+  openCurrencyPicker() {
+    if (this.quickCurrencyCodes().length > 0) {
+      this.quickCurrencyPickerOpen.set(true);
+    }
+  }
+
+  closeCurrencyPicker() {
+    // Delay closing so the option's mousedown event can select the currency.
+    setTimeout(() => this.quickCurrencyPickerOpen.set(false), 120);
+  }
+
+  selectQuickCurrency(code: string) {
+    const text = this.quickConvertText.trim();
+    const connector = text.match(/^(.*?\b(?:to|into|for)\b)\s*([^\s.!?]*)$/i);
+
+    if (connector) {
+      this.quickConvertText = `${connector[1].trim()} ${code}`;
+    } else {
+      const amount = text.match(/^(.*?\b[\d,]+(?:\.\d+)?\b)\s*([^\s.!?]*)$/i);
+      this.quickConvertText = amount ? `${amount[1].trim()} ${code}` : `${text} ${code}`.trim();
+    }
+
+    this.quickCurrencyPickerOpen.set(false);
   }
 
   fetchTasks() {
@@ -319,6 +415,21 @@ export class DashboardComponent implements OnInit {
       next: (updated) => {
         this.tasks.update((list) => list.map((t) => (t.id === updated.id ? updated : t)));
       },
+    });
+  }
+
+  removeConversion(row: ConversionRow) {
+    if (!confirm('Delete this conversion entry?')) return;
+
+    this.deletingConversionId.set(row.id);
+    this.conversionService.deleteConversion(row.id).then((success) => {
+      if (success) {
+        this.recentConversions.update((list) => list.filter((item) => item.id !== row.id));
+        this.fetchConversionOverview();
+      } else {
+        this.errorMsg.set('Could not delete the conversion entry.');
+      }
+      this.deletingConversionId.set(null);
     });
   }
 

@@ -54,6 +54,25 @@ export class ConversionService {
   }
 
   /** Most recent conversions for the logged-in user, newest first. */
+  /** Delete one conversion history entry owned by the logged-in user. */
+  async deleteConversion(id: number): Promise<boolean> {
+    const userId = this.supabase.currentUserId();
+    if (!userId) return false;
+
+    const { error } = await this.supabase
+      .getClient()
+      .from('conversions')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.warn('Could not delete conversion history entry:', error.message);
+      return false;
+    }
+    return true;
+  }
+
   async getHistory(limit = 20): Promise<ConversionRow[]> {
     const userId = this.supabase.currentUserId();
     if (!userId) return [];
