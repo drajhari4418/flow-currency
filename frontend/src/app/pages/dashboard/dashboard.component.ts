@@ -60,6 +60,23 @@ import { firstValueFrom } from 'rxjs';
         </div>
 
         <div class="quick-convert-field">
+          <label for="quickFrom">From</label>
+          <select
+            id="quickFrom"
+            name="quickFrom"
+            [(ngModel)]="quickFromCurrency"
+            [disabled]="quickConvertLoading() || quickCurrencyLoading()"
+          >
+            @if (quickCurrencyLoading()) {
+              <option value="">Loading currencies…</option>
+            }
+            @for (code of quickCurrencyCodes(); track code) {
+              <option [value]="code">{{ code }} — {{ quickCurrencies()[code] }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="quick-convert-field">
           <label for="quickTo">To</label>
           <select
             id="quickTo"
@@ -76,14 +93,36 @@ import { firstValueFrom } from 'rxjs';
           </select>
         </div>
 
-        <button class="primary quick-convert-button" type="submit" [disabled]="quickConvertLoading() || quickCurrencyLoading() || !quickAmount || !quickToCurrency">
+        <button class="primary quick-convert-button" type="submit" [disabled]="quickConvertLoading() || quickCurrencyLoading() || !quickAmount || !quickFromCurrency || !quickToCurrency">
           {{ quickConvertLoading() ? 'Converting…' : 'Convert' }}
         </button>
       </form>
+
+      <form class="quick-ai-form" (ngSubmit)="submitQuickConvertText()">
+        <div class="quick-convert-field quick-ai-field">
+          <label for="quickConvertText">Or use AI text</label>
+          <input
+            id="quickConvertText"
+            type="text"
+            name="quickConvertText"
+            [(ngModel)]="quickConvertText"
+            [disabled]="quickConvertLoading()"
+            placeholder='e.g. Convert 500 USD to EUR'
+            autocomplete="off"
+          />
+        </div>
+        <button class="secondary quick-ai-button" type="submit" [disabled]="quickConvertLoading() || !quickConvertText.trim()">
+          {{ quickConvertLoading() ? 'Reading…' : 'Use text' }}
+        </button>
+      </form>
+
       @if (quickConvertError()) {
         <div class="error-msg">{{ quickConvertError() }}</div>
       }
-      
+      <div class="hint-text">
+        Choose Amount + From + To for a direct conversion, or type a natural-language request and let AI fill the conversion fields. The currency lists are loaded from the same live source as the full converter.
+      </div>
+
       <!-- ===== Currency conversion overview ===== -->
       <div class="section-title" style="margin-top:28px;">Currency Overview</div>
       @if (statsLoading()) {
@@ -227,6 +266,7 @@ export class DashboardComponent implements OnInit {
   // The source currency remains USD by default, matching the converter page's
   // initial From selection. The To field is populated from the live currency API.
   quickAmount: number | null = null;
+  quickFromCurrency = 'USD';
   quickToCurrency = 'EUR';
   quickConvertText = '';
   quickConvertError = signal<string | null>(null);
@@ -280,8 +320,11 @@ export class DashboardComponent implements OnInit {
         this.quickCurrencies.set(list);
         const codes = Object.keys(list).sort();
         this.quickCurrencyCodes.set(codes);
-        if (!list[this.quickToCurrency]) {
-          this.quickToCurrency = codes.includes('EUR') ? 'EUR' : (codes[0] || '');
+        if (!list[this.quickFromCurrency]) {
+          this.quickFromCurrency = codes.includes('USD') ? 'USD' : (codes[0] || '');
+        }
+        if (!list[this.quickToCurrency] || this.quickToCurrency === this.quickFromCurrency) {
+          this.quickToCurrency = codes.find((code) => code !== this.quickFromCurrency) || '';
         }
         this.quickCurrencyLoading.set(false);
       },
@@ -331,42 +374,112 @@ export class DashboardComponent implements OnInit {
     this.quickConvertError.set(null);
 
     const amount = Number(this.quickAmount);
+    const from = this.quickFromCurrency?.trim().toUpperCase();
     const to = this.quickToCurrency?.trim().toUpperCase();
-    const from = 'USD';
 
     if (!Number.isFinite(amount) || amount <= 0) {
       this.quickConvertError.set('Enter an amount greater than zero.');
       return;
     }
-
+    if (!from || !this.quickCurrencyCodes().includes(from)) {
+      this.quickConvertError.set('Please select a valid From currency.');
+      return;
+    }
     if (!to || !this.quickCurrencyCodes().includes(to)) {
-      this.quickConvertError.set('Please select a currency in the To field.');
+      this.quickConvertError.set('Please select a valid To currency.');
       return;
     }
-
     if (from === to) {
-      this.quickConvertError.set('Choose a To currency different from USD.');
+      this.quickConvertError.set('From and To currencies must be different.');
       return;
     }
 
-    // Keep the AI path: the structured fields are converted into a precise
-    // natural-language request, so Claude can still resolve/validate it.
-    const text = `Convert ${amount} USD to ${to}`;
-    this.quickConvertText = text;
+    this.quickConvertText = `Convert ${amount} ${from} to ${to}`;
     this.quickConvertLoading.set(true);
 
     try {
-      const ai = await firstValueFrom(this.aiConversionService.parseConversionRequest(text));
-      this.goToConverter(ai.amount, ai.from, ai.to);
-      return;
+      // Validate the structured request through the existing AI endpoint.
+      // If AI is unavailable, the structured values are still sent to the
+      // converter by the fallback below.
+      const ai = await firstValueFrom(this.aiConversionService.parseConversionRequest(this.quickConvertText));
+      const aiFrom = ai.from?.trim().toUpperCase();
+      const aiTo = ai.to?.trim().toUpperCase();
+      const aiAmount = Number(ai.amount);
+
+      if (Number.isFinite(aiAmount) && aiAmount > 0 && this.quickCurrencyCodes().includes(aiFrom) && this.quickCurrencyCodes().includes(aiTo) && aiFrom !== aiTo) {
+        this.quickAmount = aiAmount;
+        this.quickFromCurrency = aiFrom;
+        this.quickToCurrency = aiTo;
+        this.goToConverter(aiAmount, aiFrom, aiTo);
+        return;
+      }
     } catch (err: any) {
-      console.warn('AI parsing failed, using the structured dashboard values:', err?.error?.error || err);
+      console.warn('AI parsing failed, using structured dashboard values:', err?.error?.error || err);
     } finally {
       this.quickConvertLoading.set(false);
     }
 
-    // Reliable local fallback: no AI/network dependency is required here.
     this.goToConverter(amount, from, to);
+  }
+
+  async submitQuickConvertText() {
+    this.quickConvertError.set(null);
+    const text = this.quickConvertText.trim();
+    if (!text) {
+      this.quickConvertError.set('Type a conversion request first.');
+      return;
+    }
+
+    this.quickConvertLoading.set(true);
+    try {
+      const ai = await firstValueFrom(this.aiConversionService.parseConversionRequest(text));
+      const amount = Number(ai.amount);
+      const from = ai.from?.trim().toUpperCase();
+      const to = ai.to?.trim().toUpperCase();
+
+      if (!Number.isFinite(amount) || amount <= 0 || !this.quickCurrencyCodes().includes(from) || !this.quickCurrencyCodes().includes(to)) {
+        throw new Error('AI returned an unsupported currency or amount.');
+      }
+      if (from === to) {
+        throw new Error('From and To currencies must be different.');
+      }
+
+      this.quickAmount = amount;
+      this.quickFromCurrency = from;
+      this.quickToCurrency = to;
+      this.goToConverter(amount, from, to);
+      return;
+    } catch (err: any) {
+      // The local parser keeps text entry useful even if the Express/Claude
+      // endpoint is temporarily unavailable.
+      const parsed = parseCurrencyRequest(text);
+      if (parsed) {
+        const from = this.resolveQuickCurrency(parsed.fromRaw);
+        const to = this.resolveQuickCurrency(parsed.toRaw);
+        if (from && to && from !== to) {
+          this.quickAmount = parsed.amount;
+          this.quickFromCurrency = from;
+          this.quickToCurrency = to;
+          this.goToConverter(parsed.amount, from, to);
+          return;
+        }
+      }
+      this.quickConvertError.set('Could not understand that request. Try: Convert 500 USD to EUR');
+    } finally {
+      this.quickConvertLoading.set(false);
+    }
+  }
+
+  private resolveQuickCurrency(raw: string): string | null {
+    const normalized = raw.trim().toLowerCase();
+    const code = normalized.toUpperCase();
+    if (/^[A-Z]{3}$/.test(code) && this.quickCurrencies()[code]) return code;
+
+    const exact = Object.entries(this.quickCurrencies()).find(([, name]) => name.toLowerCase() === normalized);
+    if (exact) return exact[0];
+
+    const partial = Object.entries(this.quickCurrencies()).find(([, name]) => name.toLowerCase().includes(normalized));
+    return partial ? partial[0] : null;
   }
 
   private goToConverter(amount: number, from: string, to: string) {

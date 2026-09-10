@@ -401,3 +401,31 @@ table.history-table tbody tr { border-top: 1px solid var(--border); }
   font-size: 12px;
   box-shadow: 0 8px 24px var(--shadow);
 }
+
+/* ===== Dashboard Quick Convert: Amount + From + To + Convert ===== */
+.quick-convert-form {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(210px, 1fr) minmax(210px, 1fr) auto;
+}
+.quick-ai-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+.quick-ai-field { min-width: 0; }
+.quick-ai-button {
+  height: 42px;
+  white-space: nowrap;
+}
+@media (max-width: 820px) {
+  .quick-convert-form { grid-template-columns: 1fr 1fr; }
+  .quick-convert-button { width: 100% !important; }
+}
+@media (max-width: 640px) {
+  .quick-convert-form,
+  .quick-ai-form { grid-template-columns: 1fr; }
+  .quick-convert-button,
+  .quick-ai-button { width: 100% !important; }
+}
