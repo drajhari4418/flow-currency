@@ -83,10 +83,7 @@ import { firstValueFrom } from 'rxjs';
       @if (quickConvertError()) {
         <div class="error-msg">{{ quickConvertError() }}</div>
       }
-      // <div class="hint-text">
-      //   Enter the amount and choose the destination currency. Dashboard Quick Convert uses USD as the source currency and keeps the same live currency list as the full converter.
-      // </div>
-
+      
       <!-- ===== Currency conversion overview ===== -->
       <div class="section-title" style="margin-top:28px;">Currency Overview</div>
       @if (statsLoading()) {
