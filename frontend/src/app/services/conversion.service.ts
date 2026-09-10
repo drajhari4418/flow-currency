@@ -59,17 +59,40 @@ export class ConversionService {
     const userId = this.supabase.currentUserId();
     if (!userId) return false;
 
-    const { error } = await this.supabase
-      .getClient()
+    const client = this.supabase.getClient();
+
+    // First verify that this row is visible to the signed-in user. This also
+    // prevents reporting success when RLS silently filters out a row.
+    const { data: existing, error: readError } = await client
+      .from('conversions')
+      .select('id')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (readError || !existing) {
+      console.warn('Conversion entry is not available for deletion:', readError?.message);
+      return false;
+    }
+
+    // Ask Supabase to return the deleted row. If the DELETE RLS policy is
+    // missing, Supabase will not return the row and we correctly report
+    // failure instead of pretending the UI deletion was persistent.
+    const { data: deleted, error: deleteError } = await client
       .from('conversions')
       .delete()
       .eq('id', id)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .select('id');
 
-    if (error) {
-      console.warn('Could not delete conversion history entry:', error.message);
+    if (deleteError || !deleted || deleted.length !== 1) {
+      console.warn(
+        'Could not delete conversion history entry:',
+        deleteError?.message || 'No row was deleted. Check the conversions DELETE RLS policy.'
+      );
       return false;
     }
+
     return true;
   }
 

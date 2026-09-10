@@ -402,9 +402,36 @@ table.history-table tbody tr { border-top: 1px solid var(--border); }
 .history-table .delete {
   min-width: 30px;
   padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.history-table .delete:hover {
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .history-table .delete:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+
+.quick-currency-status {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  box-shadow: 0 8px 24px var(--shadow);
 }

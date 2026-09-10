@@ -56,6 +56,14 @@ import { firstValueFrom } from 'rxjs';
             (blur)="closeCurrencyPicker()"
           />
 
+          @if (quickCurrencyLoading()) {
+            <div class="quick-currency-status">Loading currencies…</div>
+          }
+
+          @if (quickCurrencyLoadError() && quickCurrencyPickerOpen()) {
+            <div class="quick-currency-status">Currency list could not be loaded. You can still type a currency name or code.</div>
+          }
+
           @if (quickCurrencyPickerOpen() && filteredQuickCurrencies().length > 0) {
             <div class="quick-currency-dropdown">
               <div class="quick-currency-dropdown-title">Choose a currency</div>
@@ -70,6 +78,10 @@ import { firstValueFrom } from 'rxjs';
                 </button>
               }
             </div>
+          }
+
+          @if (quickCurrencyPickerOpen() && !quickCurrencyLoading() && filteredQuickCurrencies().length === 0 && quickCurrencyCodes().length > 0) {
+            <div class="quick-currency-status">No matching currency</div>
           }
         </div>
         <button class="primary" style="width:auto;" type="submit" [disabled]="quickConvertLoading()">
@@ -232,6 +244,8 @@ export class DashboardComponent implements OnInit {
   quickCurrencies = signal<CurrencyList>({});
   quickCurrencyCodes = signal<string[]>([]);
   quickCurrencyPickerOpen = signal(false);
+  quickCurrencyLoading = signal(false);
+  quickCurrencyLoadError = signal(false);
   filteredQuickCurrencies = computed(() => {
     const text = this.quickConvertText.trim().toLowerCase();
     const connectorMatch = text.match(/(?:\bto\b|\binto\b|\bfor\b)\s*([^\s.!?]*)$/i);
@@ -282,16 +296,21 @@ export class DashboardComponent implements OnInit {
   }
 
   private loadQuickCurrencies() {
+    this.quickCurrencyLoading.set(true);
+    this.quickCurrencyLoadError.set(false);
     this.currencyService.getCurrencies().subscribe({
       next: (list) => {
         this.quickCurrencies.set(list);
         this.quickCurrencyCodes.set(Object.keys(list).sort());
+        this.quickCurrencyLoading.set(false);
       },
       error: () => {
         // The picker is only an enhancement. Quick Convert still works via
         // Claude and the existing offline parser if the list API is down.
         this.quickCurrencies.set({});
         this.quickCurrencyCodes.set([]);
+        this.quickCurrencyLoading.set(false);
+        this.quickCurrencyLoadError.set(true);
       },
     });
   }
