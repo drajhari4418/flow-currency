@@ -12,7 +12,7 @@ export interface ParsedCurrencyRequest {
  *
  * This function only does text extraction — it does NOT validate or resolve
  * "dollars"/"rupees" into actual currency codes. It exists as an offline
- * fallback for CurrencyConverterComponent's query-param handling, and for
+ * fallback for dashboard query handling, and for
  * DashboardComponent's Quick Convert when the AI parsing call fails.
  *
  * Returns null if the text doesn't match a recognizable pattern.

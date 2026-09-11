@@ -7,7 +7,7 @@ matching path in your existing `taskflow/` repo, overwriting the old version.
 
 1. **Dashboard now shows currency conversion data.**
    Previously, `/dashboard` only showed tasks, and conversion history lived
-   solely on `/currency` (in-memory, lost on refresh). Now:
+   solely on `(separate currency page removed)` (in-memory, lost on refresh). Now:
    - A new `conversions` table stores every conversion in Supabase, scoped
      per user with Row Level Security (same pattern as `tasks`).
    - `ConversionService` (new) writes to that table and computes summary
@@ -17,7 +17,7 @@ matching path in your existing `taskflow/` repo, overwriting the old version.
    - `DashboardComponent` now renders a **"Currency Overview"** section
      (stat cards + last 5 conversions) above the task list, so logging in
      takes you straight to both your tasks *and* your conversion summary.
-   - The `/currency` page is still where you actually perform a new
+   - The `(separate currency page removed)` page is still where you actually perform a new
      conversion — it now also silently logs each one to Supabase so the
      dashboard stays current.
 
@@ -48,7 +48,7 @@ frontend/src/
     theme.service.ts              NEW
   app/pages/
     dashboard/dashboard.component.ts           REPLACES existing file
-    currency-converter/currency-converter.component.ts   REPLACES existing file
+    currency-converter(separate currency page removed)-converter.component.ts   REPLACES existing file
 ```
 
 ## Setup steps
@@ -68,7 +68,7 @@ frontend/src/
    cd frontend
    npm start
    ```
-   Log in, make a conversion on `/currency`, then go to `/dashboard` — the
+   Log in, make a conversion on `(separate currency page removed)`, then go to `/dashboard` — the
    "Currency Overview" cards and recent-conversions table should reflect it
    immediately (stats are re-fetched on every dashboard load).
 

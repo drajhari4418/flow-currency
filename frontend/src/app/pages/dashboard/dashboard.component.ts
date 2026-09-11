@@ -26,9 +26,6 @@ import { firstValueFrom } from 'rxjs';
           <button class="theme-toggle" (click)="theme.toggle()" [title]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
             {{ theme.isDark() ? '☀️' : '🌙' }}
           </button>
-          <a class="secondary" style="text-decoration:none;padding:8px 14px;" [routerLink]="['/currency']">
-            Currency converter
-          </a>
           <button class="secondary" (click)="logout()">Log out</button>
         </div>
       </div>
@@ -119,6 +116,11 @@ import { firstValueFrom } from 'rxjs';
       @if (quickConvertError()) {
         <div class="error-msg">{{ quickConvertError() }}</div>
       }
+      @if (quickConvertResult()) {
+        <div class="error-msg" style="background:var(--success-bg); color:var(--success-text);">
+          {{ quickConvertResult() }}
+        </div>
+      }
       <div class="hint-text">
         Choose Amount + From + To for a direct conversion, or type a natural-language request and let AI fill the conversion fields. The currency lists are loaded from the same live source as the full converter.
       </div>
@@ -180,8 +182,7 @@ import { firstValueFrom } from 'rxjs';
           </div>
         } @else {
           <div class="empty-state">
-            No conversions yet. Use Quick Convert above or head to the
-            <a [routerLink]="['/currency']">currency converter</a> to make your first one.
+            No conversions yet. Use Quick Convert above to make your first one.
           </div>
         }
       }
@@ -270,6 +271,7 @@ export class DashboardComponent implements OnInit {
   quickToCurrency = 'EUR';
   quickConvertText = '';
   quickConvertError = signal<string | null>(null);
+  quickConvertResult = signal<string | null>(null);
   quickConvertLoading = signal(false);
 
   quickCurrencies = signal<CurrencyList>({});
@@ -363,15 +365,13 @@ export class DashboardComponent implements OnInit {
   }
 
   /**
-   * Understands the free-text request with Claude first (handles loose
-   * phrasing like "change 20 bucks into yen"). If the AI call fails for any
-   * reason (network issue, missing API key, etc.) it falls back to the
-   * plain regex parser, so Quick Convert still works without AI configured.
-   * Either way, once amount/from/to are known, it redirects to /currency
-   * with those values attached, exactly as before.
+   * Handles the structured conversion form directly on this dashboard.
+   * The separate separate currency route has been removed, so conversion never
+   * navigates away from the main UI.
    */
   async submitQuickConvert() {
     this.quickConvertError.set(null);
+    this.quickConvertResult.set(null);
 
     const amount = Number(this.quickAmount);
     const from = this.quickFromCurrency?.trim().toUpperCase();
@@ -395,35 +395,12 @@ export class DashboardComponent implements OnInit {
     }
 
     this.quickConvertText = `Convert ${amount} ${from} to ${to}`;
-    this.quickConvertLoading.set(true);
-
-    try {
-      // Validate the structured request through the existing AI endpoint.
-      // If AI is unavailable, the structured values are still sent to the
-      // converter by the fallback below.
-      const ai = await firstValueFrom(this.aiConversionService.parseConversionRequest(this.quickConvertText));
-      const aiFrom = ai.from?.trim().toUpperCase();
-      const aiTo = ai.to?.trim().toUpperCase();
-      const aiAmount = Number(ai.amount);
-
-      if (Number.isFinite(aiAmount) && aiAmount > 0 && this.quickCurrencyCodes().includes(aiFrom) && this.quickCurrencyCodes().includes(aiTo) && aiFrom !== aiTo) {
-        this.quickAmount = aiAmount;
-        this.quickFromCurrency = aiFrom;
-        this.quickToCurrency = aiTo;
-        this.goToConverter(aiAmount, aiFrom, aiTo);
-        return;
-      }
-    } catch (err: any) {
-      console.warn('AI parsing failed, using structured dashboard values:', err?.error?.error || err);
-    } finally {
-      this.quickConvertLoading.set(false);
-    }
-
-    this.goToConverter(amount, from, to);
+    await this.performQuickConversion(amount, from, to);
   }
 
   async submitQuickConvertText() {
     this.quickConvertError.set(null);
+    this.quickConvertResult.set(null);
     const text = this.quickConvertText.trim();
     if (!text) {
       this.quickConvertError.set('Type a conversion request first.');
@@ -437,7 +414,9 @@ export class DashboardComponent implements OnInit {
       const from = ai.from?.trim().toUpperCase();
       const to = ai.to?.trim().toUpperCase();
 
-      if (!Number.isFinite(amount) || amount <= 0 || !this.quickCurrencyCodes().includes(from) || !this.quickCurrencyCodes().includes(to)) {
+      if (!Number.isFinite(amount) || amount <= 0 ||
+          !this.quickCurrencyCodes().includes(from) ||
+          !this.quickCurrencyCodes().includes(to)) {
         throw new Error('AI returned an unsupported currency or amount.');
       }
       if (from === to) {
@@ -447,11 +426,9 @@ export class DashboardComponent implements OnInit {
       this.quickAmount = amount;
       this.quickFromCurrency = from;
       this.quickToCurrency = to;
-      this.goToConverter(amount, from, to);
+      await this.performQuickConversion(amount, from, to);
       return;
     } catch (err: any) {
-      // The local parser keeps text entry useful even if the Express/Claude
-      // endpoint is temporarily unavailable.
       const parsed = parseCurrencyRequest(text);
       if (parsed) {
         const from = this.resolveQuickCurrency(parsed.fromRaw);
@@ -460,11 +437,40 @@ export class DashboardComponent implements OnInit {
           this.quickAmount = parsed.amount;
           this.quickFromCurrency = from;
           this.quickToCurrency = to;
-          this.goToConverter(parsed.amount, from, to);
+          await this.performQuickConversion(parsed.amount, from, to);
           return;
         }
       }
       this.quickConvertError.set('Could not understand that request. Try: Convert 500 USD to EUR');
+    } finally {
+      this.quickConvertLoading.set(false);
+    }
+  }
+
+  private async performQuickConversion(amount: number, from: string, to: string) {
+    this.quickConvertLoading.set(true);
+    try {
+      const response = await firstValueFrom(this.currencyService.convert(amount, from, to));
+      const result = response.rates[to];
+
+      if (!Number.isFinite(result)) {
+        throw new Error('No conversion rate returned.');
+      }
+
+      await this.conversionService.logConversion(amount, from, to, result);
+      this.quickConvertResult.set(
+        `${amount.toLocaleString()} ${from} = ${result.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} ${to}`
+      );
+
+      // Refresh the overview so the new conversion immediately appears in
+      // the same dashboard UI.
+      await this.fetchConversionOverview();
+    } catch (err) {
+      console.error('Quick conversion failed:', err);
+      this.quickConvertError.set('Conversion failed. The rates API may be temporarily unavailable.');
     } finally {
       this.quickConvertLoading.set(false);
     }
@@ -480,12 +486,6 @@ export class DashboardComponent implements OnInit {
 
     const partial = Object.entries(this.quickCurrencies()).find(([, name]) => name.toLowerCase().includes(normalized));
     return partial ? partial[0] : null;
-  }
-
-  private goToConverter(amount: number, from: string, to: string) {
-    this.router.navigate(['/currency'], {
-      queryParams: { amount, from, to, auto: '1' },
-    });
   }
 
   addTask() {

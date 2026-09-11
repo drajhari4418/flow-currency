@@ -62,7 +62,7 @@ taskflow/
 │       │   │   ├── conversion.service.ts
 │       │   │   ├── theme.service.ts
 │       │   │   └── ai-conversion.service.ts
-│       │   ├── utils/currency-request-parser.ts
+│       │   ├── utils(separate currency page removed)-request-parser.ts
 │       │   ├── interceptors/auth.interceptor.ts
 │       │   ├── guards/auth.guard.ts
 │       │   ├── app.routes.ts / app.config.ts / app.component.ts
