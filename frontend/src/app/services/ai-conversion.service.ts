@@ -9,10 +9,8 @@ export interface AiParsedConversion {
   to: string;
 }
 
-// Calls our own Express backend (never the Anthropic API directly from the
-// browser — that would expose the API key). The existing auth interceptor
-// automatically attaches the user's Supabase JWT to this request, since the
-// URL matches environment.apiUrl.
+// Calls our own Express backend (never the Anthropic/OpenAI APIs directly
+// from the browser, so API keys remain server-side).
 @Injectable({ providedIn: 'root' })
 export class AiConversionService {
   private baseUrl = `${environment.apiUrl}/ai`;
