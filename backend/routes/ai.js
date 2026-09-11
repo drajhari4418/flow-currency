@@ -9,28 +9,22 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Every route below requires a valid Supabase access token, same as /api/tasks.
 router.use(requireAuth);
 
-// Same endpoint the frontend's currency-converter dropdowns already call
-// (see frontend/src/app/services/currency.service.ts). Fetching it here too
-// means the AI is always constrained to exactly the currencies that appear
-// in the app's own <select> options — one source of truth, no drift.
 const FRANKFURTER_CURRENCIES_URL = 'https://api.frankfurter.dev/v1/currencies';
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — this list essentially never changes
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 let currencyCache = { codes: null, list: null, fetchedAt: 0 };
 
-/** Fetches (and caches in-memory) the { code: name } currency map. */
 async function getSupportedCurrencies() {
   const isFresh = currencyCache.codes && Date.now() - currencyCache.fetchedAt < CACHE_TTL_MS;
   if (isFresh) return currencyCache;
 
   const response = await fetch(FRANKFURTER_CURRENCIES_URL);
   if (!response.ok) {
-    // Refresh failed — prefer a stale cache over failing the request entirely.
     if (currencyCache.codes) return currencyCache;
     throw new Error(`Frankfurter currencies request failed: ${response.status}`);
   }
 
-  const data = await response.json(); // e.g. { USD: "United States Dollar", EUR: "Euro", ... }
+  const data = await response.json();
   const codes = new Set(Object.keys(data));
   const list = Object.entries(data)
     .map(([code, name]) => `${code} (${name})`)
@@ -64,73 +58,87 @@ if the two currencies are the same, return the Failure shape instead of
 guessing.`;
 }
 
-
 // POST /api/ai/transcribe-conversion
-// Accepts recorded microphone audio and sends it to OpenAI's speech-to-text API.
-// The browser never sees OPENAI_API_KEY; authentication is handled by requireAuth.
-router.post('/transcribe-conversion', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '15mb' }), async (req, res) => {
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({ error: 'Speech-to-text is not configured. Add OPENAI_API_KEY to the backend environment.' });
-  }
+// Receives browser-recorded audio and sends it to OpenAI server-side.
+// OPENAI_API_KEY is never exposed to the browser.
+router.post(
+  '/transcribe-conversion',
+  express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '15mb' }),
+  async (req, res) => {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: 'Speech-to-text is not configured on the backend. Add OPENAI_API_KEY to Render environment variables and redeploy.',
+      });
+    }
 
-  const audio = req.body;
-  if (!Buffer.isBuffer(audio) || audio.length === 0) {
-    return res.status(400).json({ error: 'No audio recording was received.' });
-  }
+    const audio = req.body;
+    if (!Buffer.isBuffer(audio) || audio.length === 0) {
+      return res.status(400).json({ error: 'No audio recording was received.' });
+    }
 
-  const contentType = req.headers['content-type'] || 'audio/webm';
-  const extension = contentType.includes('mp4') || contentType.includes('m4a')
-    ? 'm4a'
-    : contentType.includes('mpeg')
-      ? 'mp3'
-      : contentType.includes('wav')
-        ? 'wav'
-        : contentType.includes('ogg')
-          ? 'ogg'
-          : 'webm';
+    const contentType = String(req.headers['content-type'] || 'audio/webm').split(';')[0].trim().toLowerCase();
+    const extension = contentType.includes('mp4') || contentType.includes('m4a')
+      ? 'm4a'
+      : contentType.includes('mpeg')
+        ? 'mp3'
+        : contentType.includes('wav')
+          ? 'wav'
+          : contentType.includes('ogg')
+            ? 'ogg'
+            : 'webm';
 
-  try {
-    const form = new FormData();
-    form.append('file', new Blob([audio], { type: contentType }), `conversion-${Date.now()}.${extension}`);
-    form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe');
-    form.append('response_format', 'json');
-    form.append('language', 'en');
-
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: form,
-    });
-
-    const raw = await response.text();
-    let data;
     try {
-      data = JSON.parse(raw);
-    } catch {
-      data = { error: raw || 'Unknown transcription error' };
-    }
+      const form = new FormData();
+      form.append(
+        'file',
+        new Blob([audio], { type: contentType }),
+        `conversion-${Date.now()}.${extension}`
+      );
+      form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe');
+      form.append('response_format', 'json');
 
-    if (!response.ok) {
-      console.error('OpenAI transcription error:', response.status, data);
-      return res.status(502).json({ error: 'Speech-to-text service is unavailable. Please try again.' });
-    }
+      // Do not force English here. The transcription model can detect the
+      // spoken language, which is useful for Hindi/Hinglish requests too.
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: form,
+      });
 
-    const text = String(data.text || '').trim();
-    if (!text) {
-      return res.status(422).json({ error: 'No speech was detected in the recording.' });
-    }
+      const raw = await response.text();
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { error: raw || 'Unknown transcription error' };
+      }
 
-    return res.json({ text });
-  } catch (err) {
-    console.error('Speech-to-text request failed:', err);
-    return res.status(502).json({ error: 'Could not transcribe the recording.' });
+      if (!response.ok) {
+        console.error('OpenAI transcription error:', response.status, data);
+        const providerMessage = typeof data?.error?.message === 'string' ? data.error.message : '';
+        return res.status(502).json({
+          error: providerMessage
+            ? `Speech-to-text provider error: ${providerMessage}`
+            : 'Speech-to-text service is unavailable. Please try again.',
+        });
+      }
+
+      const text = String(data?.text || '').trim();
+      if (!text) {
+        return res.status(422).json({ error: 'No speech was detected in the recording.' });
+      }
+
+      return res.json({ text });
+    } catch (err) {
+      console.error('Speech-to-text request failed:', err);
+      return res.status(502).json({ error: 'Could not reach the speech-to-text service.' });
+    }
   }
-});
+);
 
-// POST /api/ai/parse-conversion  { text: "convert 500 usd to eur" }
-// -> { amount, from, to }  or  422 { error }  on an unparseable/unsupported request.
+// POST /api/ai/parse-conversion { text: "convert 500 usd to eur" }
 router.post('/parse-conversion', async (req, res) => {
   const { text } = req.body;
 
@@ -148,14 +156,12 @@ router.post('/parse-conversion', async (req, res) => {
 
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001', // fast + cheap, plenty for this task
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
       system: buildSystemPrompt(currencies.list),
       messages: [{ role: 'user', content: text }],
     });
 
-    // message.content is an array of blocks (text, tool_use, etc.) — join
-    // just the text blocks, since we only asked for a plain JSON reply.
     const raw = message.content
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
@@ -165,7 +171,7 @@ router.post('/parse-conversion', async (req, res) => {
     let parsed;
     try {
       parsed = JSON.parse(raw);
-    } catch (parseErr) {
+    } catch {
       console.error('AI returned non-JSON output:', raw);
       return res.status(502).json({ error: 'AI response was not valid JSON.' });
     }
