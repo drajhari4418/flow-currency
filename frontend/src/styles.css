@@ -207,6 +207,42 @@ button.secondary {
   margin-bottom: 4px;
 }
 
+
+.speech-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.speech-input-wrap input {
+  padding-right: 50px !important;
+}
+.speech-mic-button {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 17px;
+}
+.speech-mic-button:hover:not(:disabled) {
+  background: var(--border);
+}
+.speech-mic-button.listening {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+.speech-mic-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ===== Currency overview stat cards ===== */
 .stats-grid {
   display: grid;

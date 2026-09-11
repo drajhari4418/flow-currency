@@ -98,15 +98,28 @@ import { firstValueFrom } from 'rxjs';
       <form class="quick-ai-form" (ngSubmit)="submitQuickConvertText()">
         <div class="quick-convert-field quick-ai-field">
           <label for="quickConvertText">Or use AI text</label>
-          <input
-            id="quickConvertText"
-            type="text"
-            name="quickConvertText"
-            [(ngModel)]="quickConvertText"
-            [disabled]="quickConvertLoading()"
-            placeholder='e.g. Convert 500 USD to EUR'
-            autocomplete="off"
-          />
+          <div class="speech-input-wrap">
+            <input
+              id="quickConvertText"
+              type="text"
+              name="quickConvertText"
+              [(ngModel)]="quickConvertText"
+              [disabled]="quickConvertLoading()"
+              placeholder='e.g. Convert 500 USD to EUR'
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              class="speech-mic-button"
+              [class.listening]="speechListening()"
+              [disabled]="quickConvertLoading() || !speechSupported"
+              (click)="toggleSpeechRecognition()"
+              [title]="speechListening() ? 'Stop listening' : (speechSupported ? 'Speak your conversion request' : 'Speech recognition is not supported in this browser')"
+              aria-label="Use microphone for speech recognition"
+            >
+              {{ speechListening() ? '⏹' : '🎙️' }}
+            </button>
+          </div>
         </div>
         <button class="secondary quick-ai-button" type="submit" [disabled]="quickConvertLoading() || !quickConvertText.trim()">
           {{ quickConvertLoading() ? 'Reading…' : 'Use text' }}
@@ -122,7 +135,7 @@ import { firstValueFrom } from 'rxjs';
         </div>
       }
       <div class="hint-text">
-        Choose Amount + From + To for a direct conversion, or type a natural-language request and let AI fill the conversion fields. The currency lists are loaded from the same live source as the full converter.
+        Choose Amount + From + To for a direct conversion, or type or speak a natural-language request and let AI fill the conversion fields. Click the microphone to speak your request. The currency lists are loaded from the live currency source.
       </div>
 
       <!-- ===== Currency conversion overview ===== -->
@@ -273,6 +286,9 @@ export class DashboardComponent implements OnInit {
   quickConvertError = signal<string | null>(null);
   quickConvertResult = signal<string | null>(null);
   quickConvertLoading = signal(false);
+  speechListening = signal(false);
+  speechSupported = false;
+  private speechRecognition: any = null;
 
   quickCurrencies = signal<CurrencyList>({});
   quickCurrencyCodes = signal<string[]>([]);
@@ -312,6 +328,63 @@ export class DashboardComponent implements OnInit {
     this.fetchTasks();
     this.fetchConversionOverview();
     this.loadQuickCurrencies();
+    this.initializeSpeechRecognition();
+  }
+
+  private initializeSpeechRecognition() {
+    if (typeof window === 'undefined') return;
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      this.speechSupported = false;
+      return;
+    }
+
+    this.speechSupported = true;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-IN';
+
+    recognition.onstart = () => this.speechListening.set(true);
+    recognition.onend = () => this.speechListening.set(false);
+    recognition.onerror = (event: any) => {
+      this.speechListening.set(false);
+      console.error('Speech recognition error:', event?.error || event);
+      if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') {
+        this.quickConvertError.set('Microphone access was blocked. Allow microphone permission in your browser and try again.');
+      } else if (event?.error === 'no-speech') {
+        this.quickConvertError.set('No speech detected. Please try speaking your conversion request again.');
+      }
+    };
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      if (transcript.trim()) {
+        this.quickConvertText = transcript.trim();
+      }
+    };
+
+    this.speechRecognition = recognition;
+  }
+
+  toggleSpeechRecognition() {
+    if (!this.speechSupported || !this.speechRecognition) return;
+    this.quickConvertError.set(null);
+
+    if (this.speechListening()) {
+      this.speechRecognition.stop();
+      return;
+    }
+
+    try {
+      this.speechRecognition.start();
+    } catch (err) {
+      console.error('Could not start speech recognition:', err);
+      this.speechListening.set(false);
+    }
   }
 
   private loadQuickCurrencies() {
