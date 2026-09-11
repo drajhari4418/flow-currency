@@ -4,7 +4,6 @@ require('dotenv').config();
 
 const tasksRouter = require('./routes/tasks');
 const aiRouter = require('./routes/ai');
-const speechRouter = require('./routes/speech');
 
 const app = express();
 
@@ -15,7 +14,6 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/tasks', tasksRouter);
 app.use('/api/ai', aiRouter);
-app.use('/api/speech', speechRouter);
 
 // Basic error handler
 app.use((err, req, res, next) => {

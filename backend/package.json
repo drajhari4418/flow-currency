@@ -1,7 +1,7 @@
 {
   "name": "taskflow-backend",
   "version": "1.0.0",
-  "description": "Node.js + Express backend for TaskFlow, using Supabase as the database and for verifying auth, plus Claude for AI-powered request parsing",
+  "description": "Node.js + Express backend for Flow Currency, using Supabase, Claude for text request parsing, and OpenAI speech-to-text for microphone conversion requests.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

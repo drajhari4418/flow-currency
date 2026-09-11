@@ -9,8 +9,10 @@ export interface AiParsedConversion {
   to: string;
 }
 
-// Calls our own Express backend (never the Anthropic/OpenAI APIs directly
-// from the browser, so API keys remain server-side).
+// Calls our own Express backend (never the Anthropic API directly from the
+// browser — that would expose the API key). The existing auth interceptor
+// automatically attaches the user's Supabase JWT to this request, since the
+// URL matches environment.apiUrl.
 @Injectable({ providedIn: 'root' })
 export class AiConversionService {
   private baseUrl = `${environment.apiUrl}/ai`;
@@ -19,5 +21,11 @@ export class AiConversionService {
 
   parseConversionRequest(text: string): Observable<AiParsedConversion> {
     return this.http.post<AiParsedConversion>(`${this.baseUrl}/parse-conversion`, { text });
+  }
+
+  transcribeConversionAudio(audio: Blob): Observable<{ text: string }> {
+    return this.http.post<{ text: string }>(`${this.baseUrl}/transcribe-conversion`, audio, {
+      headers: { 'Content-Type': audio.type || 'audio/webm' },
+    });
   }
 }

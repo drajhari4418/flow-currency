@@ -465,3 +465,9 @@ table.history-table tbody tr { border-top: 1px solid var(--border); }
   .quick-convert-button,
   .quick-ai-button { width: 100% !important; }
 }
+
+.speech-status {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--muted-text, #6b7280);
+}

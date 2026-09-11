@@ -112,18 +112,21 @@ import { firstValueFrom } from 'rxjs';
               type="button"
               class="speech-mic-button"
               [class.listening]="speechListening()"
-              [disabled]="quickConvertLoading() || !speechSupported"
+              [disabled]="quickConvertLoading() || speechTranscribing() || !speechSupported"
               (click)="toggleSpeechRecognition()"
-              [title]="speechListening() ? 'Stop listening' : (speechSupported ? 'Speak your conversion request' : 'Speech recognition is not supported in this browser')"
-              aria-label="Use microphone for speech recognition"
+              [title]="speechListening() ? 'Stop recording' : (speechSupported ? 'Record your conversion request' : 'Audio recording is not supported in this browser')"
+              aria-label="Record a conversion request with the microphone"
             >
-              {{ speechListening() ? '⏹' : '🎙️' }}
+              {{ speechListening() ? '⏹' : (speechTranscribing() ? '…' : '🎙️') }}
             </button>
           </div>
         </div>
         <button class="secondary quick-ai-button" type="submit" [disabled]="quickConvertLoading() || !quickConvertText.trim()">
           {{ quickConvertLoading() ? 'Reading…' : 'Use text' }}
         </button>
+        @if (speechTranscribing()) {
+          <div class="speech-status">Transcribing your recording…</div>
+        }
       </form>
 
       @if (quickConvertError()) {
@@ -288,9 +291,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
   quickConvertLoading = signal(false);
   speechListening = signal(false);
   speechSupported = false;
-  private speechRecognition: any = null;
-  private speechStopRequested = false;
-  private speechTranscript = '';
+  speechTranscribing = signal(false);
+  private mediaRecorder: MediaRecorder | null = null;
+  private mediaStream: MediaStream | null = null;
+  private speechChunks: Blob[] = [];
 
   quickCurrencies = signal<CurrencyList>({});
   quickCurrencyCodes = signal<string[]>([]);
@@ -335,129 +339,112 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   private initializeSpeechRecognition() {
-    if (typeof window === 'undefined') return;
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      this.speechSupported = false;
-      return;
-    }
-
-    this.speechSupported = true;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-IN';
-
-    recognition.onstart = () => {
-      this.zone.run(() => {
-        this.speechListening.set(true);
-        this.quickConvertError.set(null);
-      });
-    };
-
-    recognition.onresult = (event: any) => {
-      let finalText = '';
-      let interimText = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0]?.transcript ?? '';
-        if (event.results[i].isFinal) {
-          finalText += transcript;
-        } else {
-          interimText += transcript;
-        }
-      }
-
-      if (finalText.trim()) {
-        this.speechTranscript += (this.speechTranscript ? ' ' : '') + finalText.trim();
-      }
-
-      const combined = (this.speechTranscript + (interimText ? ' ' + interimText.trim() : '')).trim();
-      if (combined) {
-        this.zone.run(() => this.quickConvertText = combined);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      const error = event?.error || 'unknown';
-      console.error('Speech recognition error:', error, event);
-
-      this.zone.run(() => {
-        if (error === 'not-allowed' || error === 'service-not-allowed') {
-          this.speechStopRequested = true;
-          this.speechListening.set(false);
-          this.quickConvertError.set('Microphone access was blocked. Allow microphone access for this site in Chrome, then click the microphone again.');
-        } else if (error === 'no-speech') {
-          this.quickConvertError.set('No speech detected. Keep speaking or click the microphone again.');
-        } else if (error === 'audio-capture') {
-          this.speechStopRequested = true;
-          this.speechListening.set(false);
-          this.quickConvertError.set('No microphone was found or another app is using it. Check your Windows microphone settings.');
-        } else if (error === 'network') {
-          this.quickConvertError.set('Speech recognition service is unavailable. Check your internet connection and try again.');
-        }
-      });
-    };
-
-    recognition.onend = () => {
-      this.zone.run(() => this.speechListening.set(false));
-
-      // Chrome can end recognition by itself after a short pause. Keep the
-      // microphone active until the user explicitly clicks Stop.
-      if (!this.speechStopRequested && this.speechSupported) {
-        window.setTimeout(() => {
-          if (this.speechStopRequested || !this.speechRecognition) return;
-          try {
-            this.speechRecognition.start();
-          } catch (err) {
-            console.debug('Speech recognition restart skipped:', err);
-          }
-        }, 150);
-      }
-    };
-
-    this.speechRecognition = recognition;
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+    this.speechSupported = typeof navigator.mediaDevices?.getUserMedia === 'function'
+      && typeof MediaRecorder !== 'undefined';
   }
 
-  toggleSpeechRecognition() {
-    if (!this.speechSupported || !this.speechRecognition) {
-      this.quickConvertError.set('Speech recognition is not supported in this browser. Please use Google Chrome or another Chromium-based browser.');
+  private getRecordingMimeType(): string {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+    ];
+    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || 'audio/webm';
+  }
+
+  async toggleSpeechRecognition() {
+    if (!this.speechSupported) {
+      this.quickConvertError.set('Audio recording is not supported in this browser. Please use a recent version of Chrome or Edge.');
       return;
     }
-
     this.quickConvertError.set(null);
-
     if (this.speechListening()) {
-      this.speechStopRequested = true;
-      this.speechRecognition.stop();
-      this.zone.run(() => this.speechListening.set(false));
+      this.stopAudioRecording();
       return;
     }
-
-    this.speechStopRequested = false;
-    this.speechTranscript = '';
-    this.quickConvertText = '';
-
     try {
-      this.speechRecognition.start();
+      this.quickConvertText = '';
+      this.speechChunks = [];
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = this.getRecordingMimeType();
+      this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
+      this.mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) this.speechChunks.push(event.data);
+      };
+      this.mediaRecorder.onstart = () => this.zone.run(() => this.speechListening.set(true));
+      this.mediaRecorder.onerror = () => {
+        this.zone.run(() => {
+          this.quickConvertError.set('The browser could not record audio. Check your microphone and try again.');
+          this.speechListening.set(false);
+        });
+        this.releaseAudioStream();
+      };
+      this.mediaRecorder.onstop = () => {
+        const audio = new Blob(this.speechChunks, { type: mimeType });
+        this.releaseAudioStream();
+        this.mediaRecorder = null;
+        this.zone.run(() => this.speechListening.set(false));
+        if (audio.size === 0) {
+          this.zone.run(() => this.quickConvertError.set('No audio was recorded. Please speak and try again.'));
+          return;
+        }
+        void this.transcribeAndParseAudio(audio);
+      };
+      this.mediaRecorder.start();
     } catch (err: any) {
-      console.error('Could not start speech recognition:', err);
+      console.error('Could not start audio recording:', err);
+      this.releaseAudioStream();
+      this.mediaRecorder = null;
       this.speechListening.set(false);
-      this.quickConvertError.set('Could not start the microphone. Check browser microphone permission and try again.');
+      this.quickConvertError.set(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone access was blocked. Allow microphone access for this site and try again.'
+          : 'Could not start the microphone. Check your Windows microphone settings and try again.'
+      );
+    }
+  }
+
+  private stopAudioRecording() {
+    if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
+      this.releaseAudioStream();
+      this.speechListening.set(false);
+      return;
+    }
+    this.mediaRecorder.stop();
+  }
+
+  private releaseAudioStream() {
+    this.mediaStream?.getTracks().forEach((track) => track.stop());
+    this.mediaStream = null;
+  }
+
+  private async transcribeAndParseAudio(audio: Blob) {
+    this.speechTranscribing.set(true);
+    this.quickConvertLoading.set(true);
+    this.quickConvertError.set(null);
+    try {
+      const transcription = await firstValueFrom(this.aiConversionService.transcribeConversionAudio(audio));
+      const text = transcription.text.trim();
+      if (!text) throw new Error('No speech was detected in the recording.');
+      this.quickConvertText = text;
+      await this.submitQuickConvertText();
+    } catch (err: any) {
+      console.error('Audio transcription/parsing failed:', err);
+      this.quickConvertError.set(err?.error?.error || err?.message || 'Could not understand the recording.');
+    } finally {
+      this.speechTranscribing.set(false);
+      this.quickConvertLoading.set(false);
     }
   }
 
   ngOnDestroy() {
-    this.speechStopRequested = true;
-    if (this.speechRecognition) {
-      try {
-        this.speechRecognition.stop();
-      } catch {
-        // Recognition may already be stopped.
-      }
-      this.speechRecognition = null;
+    this.releaseAudioStream();
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try { this.mediaRecorder.stop(); } catch { /* already stopping */ }
     }
+    this.mediaRecorder = null;
   }
 
   private loadQuickCurrencies() {
