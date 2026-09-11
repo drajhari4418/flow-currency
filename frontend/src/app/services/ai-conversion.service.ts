@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, from } from 'rxjs';
 import { environment } from '../../environments/environment';
 
 export interface AiParsedConversion {
@@ -11,9 +11,9 @@ export interface AiParsedConversion {
 
 type SpeechPipeline = (audio: Float32Array, options?: Record<string, unknown>) => Promise<{ text?: string }>;
 
-// Text parsing remains server-side through Claude. Speech-to-text is different:
-// Whisper runs locally in the user's browser through Transformers.js, so there
-// is no OpenAI API key, paid speech API, or audio upload required.
+// Text parsing remains server-side through Claude. Speech-to-text runs locally
+// in the user's browser with Whisper via Transformers.js, so there is no
+// OpenAI API key, paid speech API, or audio upload required.
 @Injectable({ providedIn: 'root' })
 export class AiConversionService {
   private baseUrl = `${environment.apiUrl}/ai`;
@@ -25,7 +25,11 @@ export class AiConversionService {
     return this.http.post<AiParsedConversion>(`${this.baseUrl}/parse-conversion`, { text });
   }
 
-  async transcribeConversionAudio(audio: Blob): Promise<{ text: string }> {
+  transcribeConversionAudio(audio: Blob): Observable<{ text: string }> {
+    return from(this.transcribeLocally(audio));
+  }
+
+  private async transcribeLocally(audio: Blob): Promise<{ text: string }> {
     const transcriber = await this.getSpeechPipeline();
     const audioData = await this.decodeAndResampleAudio(audio, 16000);
 
@@ -87,7 +91,7 @@ export class AiConversionService {
 
       for (let i = 0; i < targetLength; i += 1) {
         const sourcePosition = i * ratio;
-        const left = Math.floor(sourcePosition);
+        const left = Math.min(Math.floor(sourcePosition), mono.length - 1);
         const right = Math.min(left + 1, mono.length - 1);
         const weight = sourcePosition - left;
         resampled[i] = mono[left] * (1 - weight) + mono[right] * weight;
