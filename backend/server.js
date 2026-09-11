@@ -14,8 +14,9 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     speechToText: {
-      configured: Boolean(process.env.OPENAI_API_KEY),
-      model: process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe',
+      provider: 'browser-local-whisper',
+      configured: true,
+      model: 'Xenova/whisper-tiny',
     },
   });
 });
@@ -32,5 +33,5 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`TaskFlow backend running on http://localhost:${PORT}`);
-  console.log(`Speech-to-text configured: ${Boolean(process.env.OPENAI_API_KEY)}`);
+  console.log('Speech-to-text: browser-local Whisper (no paid API key required)');
 });
