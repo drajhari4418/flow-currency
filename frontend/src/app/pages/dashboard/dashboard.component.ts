@@ -153,11 +153,11 @@ import { firstValueFrom } from 'rxjs';
           </div>
           <div class="stat-card">
             <div class="stat-value">{{ stats().favoritePair }}</div>
-            <div class="stat-label">Most Used Pair</div>
+            
           </div>
           <div class="stat-card">
             <div class="stat-value">{{ stats().favoriteCurrency }}</div>
-            <div class="stat-label">Most Used Currency</div>
+           
           </div>
           <div class="stat-card">
             <div class="stat-value">{{ stats().lastConversion }}</div>
