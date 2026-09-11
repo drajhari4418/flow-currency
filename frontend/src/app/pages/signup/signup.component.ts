@@ -12,7 +12,7 @@ import { SupabaseService } from '../../services/supabase.service';
     <div class="auth-wrapper">
       <div class="auth-card">
         <h1>Create an account</h1>
-        <p class="subtitle">Sign up for TaskFlow</p>
+        <p class="subtitle">Sign up for Trip Planner</p>
 
         @if (errorMsg()) {
           <div class="error-msg">{{ errorMsg() }}</div>
