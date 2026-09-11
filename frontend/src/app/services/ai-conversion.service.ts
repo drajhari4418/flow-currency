@@ -9,10 +9,8 @@ export interface AiParsedConversion {
   to: string;
 }
 
-// Calls our own Express backend (never the Anthropic API directly from the
-// browser — that would expose the API key). The existing auth interceptor
-// automatically attaches the user's Supabase JWT to this request, since the
-// URL matches environment.apiUrl.
+// All AI work stays server-side. The Angular app sends text/audio only to
+// our Express backend; Anthropic and OpenAI keys are never exposed here.
 @Injectable({ providedIn: 'root' })
 export class AiConversionService {
   private baseUrl = `${environment.apiUrl}/ai`;
@@ -24,8 +22,17 @@ export class AiConversionService {
   }
 
   transcribeConversionAudio(audio: Blob): Observable<{ text: string }> {
-    return this.http.post<{ text: string }>(`${this.baseUrl}/transcribe-conversion`, audio, {
-      headers: { 'Content-Type': audio.type || 'audio/webm' },
-    });
+    const contentType = audio.type || 'audio/webm';
+
+    return this.http.post<{ text: string }>(
+      `${this.baseUrl}/transcribe-conversion`,
+      audio,
+      {
+        headers: {
+          'Content-Type': contentType,
+          Accept: 'application/json',
+        },
+      }
+    );
   }
 }
