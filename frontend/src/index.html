@@ -5,6 +5,11 @@
   <title>Trip Planner</title>
   <base href="/" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* Keep the dashboard's visible product name consistent with the new branding. */
+    .dashboard-header h1 { font-size: 0 !important; }
+    .dashboard-header h1::after { content: 'Trip Planner'; font-size: 20px; }
+  </style>
 </head>
 <body>
   <app-root></app-root>
