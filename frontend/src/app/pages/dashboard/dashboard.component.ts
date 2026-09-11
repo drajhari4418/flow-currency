@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, signal } from '@angular/core';
+import { Component, NgZone, OnDestroy, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -266,7 +266,7 @@ import { firstValueFrom } from 'rxjs';
     <footer class="app-footer">Created and Developed by <strong>Dushyant Kaushik</strong></footer>
   `,
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   tasks = signal<Task[]>([]);
   loading = signal(true);
   adding = signal(false);
@@ -289,6 +289,8 @@ export class DashboardComponent implements OnInit {
   speechListening = signal(false);
   speechSupported = false;
   private speechRecognition: any = null;
+  private speechStopRequested = false;
+  private speechTranscript = '';
 
   quickCurrencies = signal<CurrencyList>({});
   quickCurrencyCodes = signal<string[]>([]);
@@ -320,7 +322,8 @@ export class DashboardComponent implements OnInit {
     private aiConversionService: AiConversionService,
     private currencyService: CurrencyService,
     public theme: ThemeService,
-    private router: Router
+    private router: Router,
+    private zone: NgZone
   ) {}
 
   ngOnInit() {
@@ -342,28 +345,75 @@ export class DashboardComponent implements OnInit {
 
     this.speechSupported = true;
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-IN';
 
-    recognition.onstart = () => this.speechListening.set(true);
-    recognition.onend = () => this.speechListening.set(false);
-    recognition.onerror = (event: any) => {
-      this.speechListening.set(false);
-      console.error('Speech recognition error:', event?.error || event);
-      if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') {
-        this.quickConvertError.set('Microphone access was blocked. Allow microphone permission in your browser and try again.');
-      } else if (event?.error === 'no-speech') {
-        this.quickConvertError.set('No speech detected. Please try speaking your conversion request again.');
+    recognition.onstart = () => {
+      this.zone.run(() => {
+        this.speechListening.set(true);
+        this.quickConvertError.set(null);
+      });
+    };
+
+    recognition.onresult = (event: any) => {
+      let finalText = '';
+      let interimText = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0]?.transcript ?? '';
+        if (event.results[i].isFinal) {
+          finalText += transcript;
+        } else {
+          interimText += transcript;
+        }
+      }
+
+      if (finalText.trim()) {
+        this.speechTranscript += (this.speechTranscript ? ' ' : '') + finalText.trim();
+      }
+
+      const combined = (this.speechTranscript + (interimText ? ' ' + interimText.trim() : '')).trim();
+      if (combined) {
+        this.zone.run(() => this.quickConvertText = combined);
       }
     };
-    recognition.onresult = (event: any) => {
-      let transcript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-      }
-      if (transcript.trim()) {
-        this.quickConvertText = transcript.trim();
+
+    recognition.onerror = (event: any) => {
+      const error = event?.error || 'unknown';
+      console.error('Speech recognition error:', error, event);
+
+      this.zone.run(() => {
+        if (error === 'not-allowed' || error === 'service-not-allowed') {
+          this.speechStopRequested = true;
+          this.speechListening.set(false);
+          this.quickConvertError.set('Microphone access was blocked. Allow microphone access for this site in Chrome, then click the microphone again.');
+        } else if (error === 'no-speech') {
+          this.quickConvertError.set('No speech detected. Keep speaking or click the microphone again.');
+        } else if (error === 'audio-capture') {
+          this.speechStopRequested = true;
+          this.speechListening.set(false);
+          this.quickConvertError.set('No microphone was found or another app is using it. Check your Windows microphone settings.');
+        } else if (error === 'network') {
+          this.quickConvertError.set('Speech recognition service is unavailable. Check your internet connection and try again.');
+        }
+      });
+    };
+
+    recognition.onend = () => {
+      this.zone.run(() => this.speechListening.set(false));
+
+      // Chrome can end recognition by itself after a short pause. Keep the
+      // microphone active until the user explicitly clicks Stop.
+      if (!this.speechStopRequested && this.speechSupported) {
+        window.setTimeout(() => {
+          if (this.speechStopRequested || !this.speechRecognition) return;
+          try {
+            this.speechRecognition.start();
+          } catch (err) {
+            console.debug('Speech recognition restart skipped:', err);
+          }
+        }, 150);
       }
     };
 
@@ -371,19 +421,42 @@ export class DashboardComponent implements OnInit {
   }
 
   toggleSpeechRecognition() {
-    if (!this.speechSupported || !this.speechRecognition) return;
-    this.quickConvertError.set(null);
-
-    if (this.speechListening()) {
-      this.speechRecognition.stop();
+    if (!this.speechSupported || !this.speechRecognition) {
+      this.quickConvertError.set('Speech recognition is not supported in this browser. Please use Google Chrome or another Chromium-based browser.');
       return;
     }
 
+    this.quickConvertError.set(null);
+
+    if (this.speechListening()) {
+      this.speechStopRequested = true;
+      this.speechRecognition.stop();
+      this.zone.run(() => this.speechListening.set(false));
+      return;
+    }
+
+    this.speechStopRequested = false;
+    this.speechTranscript = '';
+    this.quickConvertText = '';
+
     try {
       this.speechRecognition.start();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Could not start speech recognition:', err);
       this.speechListening.set(false);
+      this.quickConvertError.set('Could not start the microphone. Check browser microphone permission and try again.');
+    }
+  }
+
+  ngOnDestroy() {
+    this.speechStopRequested = true;
+    if (this.speechRecognition) {
+      try {
+        this.speechRecognition.stop();
+      } catch {
+        // Recognition may already be stopped.
+      }
+      this.speechRecognition = null;
     }
   }
 
