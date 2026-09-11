@@ -357,7 +357,7 @@ export class DashboardComponent implements OnInit {
     this.statsLoading.set(true);
     const [stats, history] = await Promise.all([
       this.conversionService.getStats(),
-      this.conversionService.getHistory(5),
+      this.conversionService.getHistory(),
     ]);
     this.stats.set(stats);
     this.recentConversions.set(history);

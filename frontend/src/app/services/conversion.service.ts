@@ -96,28 +96,72 @@ export class ConversionService {
     return true;
   }
 
-  async getHistory(limit = 20): Promise<ConversionRow[]> {
+  /**
+   * Load conversion history for the signed-in user.
+   *
+   * When a limit is supplied, only that many newest rows are returned.
+   * When no limit is supplied, every row is loaded in pages. Paging is
+   * important because Supabase/PostgREST can cap a single response (commonly
+   * at 1,000 rows), so simply removing .limit() would not reliably show all
+   * conversions for users with a large history.
+   */
+  async getHistory(limit?: number): Promise<ConversionRow[]> {
     const userId = this.supabase.currentUserId();
     if (!userId) return [];
 
-    const { data, error } = await this.supabase
-      .getClient()
-      .from('conversions')
-      .select('id, amount, from_currency, to_currency, result, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    const client = this.supabase.getClient();
+    const pageSize = 1000;
 
-    if (error) {
-      console.warn('Could not load conversion history:', error.message);
-      return [];
+    if (limit !== undefined) {
+      const safeLimit = Math.max(0, Math.floor(limit));
+      if (safeLimit === 0) return [];
+
+      const { data, error } = await client
+        .from('conversions')
+        .select('id, amount, from_currency, to_currency, result, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .range(0, safeLimit - 1);
+
+      if (error) {
+        console.warn('Could not load conversion history:', error.message);
+        return [];
+      }
+      return data ?? [];
     }
-    return data ?? [];
+
+    // No limit means ALL conversion entries. Fetch them page-by-page so the
+    // dashboard does not silently stop at Supabase's per-request row limit.
+    const allRows: ConversionRow[] = [];
+    let from = 0;
+
+    while (true) {
+      const to = from + pageSize - 1;
+      const { data, error } = await client
+        .from('conversions')
+        .select('id, amount, from_currency, to_currency, result, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (error) {
+        console.warn('Could not load conversion history:', error.message);
+        return allRows;
+      }
+
+      const page = data ?? [];
+      allRows.push(...page);
+
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return allRows;
   }
 
-  /** Summary stats for the dashboard cards, derived from full history. */
+  /** Summary stats for the dashboard cards, derived from the full history. */
   async getStats(): Promise<ConversionStats> {
-    const rows = await this.getHistory(500); // enough to compute meaningful favorites
+    const rows = await this.getHistory();
     if (rows.length === 0) return EMPTY_STATS;
 
     const pairCounts: Record<string, number> = {};
