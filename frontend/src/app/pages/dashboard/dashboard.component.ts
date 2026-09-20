@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, signal } from '@angular/core';
+import { Component, NgZone, OnDestroy, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -8,7 +8,6 @@ import { ConversionService, ConversionStats, ConversionRow } from '../../service
 import { ThemeService } from '../../services/theme.service';
 import { AiConversionService } from '../../services/ai-conversion.service';
 import { CurrencyService, CurrencyList } from '../../services/currency.service';
-import { ForecastService } from '../../services/forecast.service';
 import { parseCurrencyRequest } from '../../utils/currency-request-parser';
 import { firstValueFrom } from 'rxjs';
 
@@ -27,9 +26,6 @@ import { firstValueFrom } from 'rxjs';
           <button class="theme-toggle" (click)="theme.toggle()" [title]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
             {{ theme.isDark() ? '☀️' : '🌙' }}
           </button>
-          <a class="secondary" style="text-decoration:none;padding:8px 14px;" [routerLink]="['/currency']">
-            Currency converter
-          </a>
           <button class="secondary" (click)="logout()">Log out</button>
         </div>
       </div>
@@ -39,8 +35,7 @@ import { firstValueFrom } from 'rxjs';
       }
 
       <!-- ===== Quick Convert — parsed by Claude (Anthropic API) on the
-           backend, with a plain-regex parser as an offline/error fallback.
-           Clicking Convert also opens the AI forecast panel automatically. -->
+           backend, with a plain-regex parser as an offline/error fallback. -->
       <div class="section-title" style="display:flex; align-items:center; gap:8px;">
         Quick Convert
         <span class="ai-badge">✨ AI-powered</span>
@@ -100,27 +95,50 @@ import { firstValueFrom } from 'rxjs';
         </button>
       </form>
 
-      <!-- AI text box: no button — press Enter to submit. -->
-      <form class="quick-ai-form" style="grid-template-columns: minmax(0, 1fr);" (ngSubmit)="submitQuickConvertText()">
+      <form class="quick-ai-form" (ngSubmit)="submitQuickConvertText()">
         <div class="quick-convert-field quick-ai-field">
           <label for="quickConvertText">Or use AI text</label>
-          <input
-            id="quickConvertText"
-            type="text"
-            name="quickConvertText"
-            [(ngModel)]="quickConvertText"
-            [disabled]="quickConvertLoading()"
-            placeholder='e.g. Convert 500 USD to EUR, then press Enter'
-            autocomplete="off"
-          />
+          <div class="speech-input-wrap">
+            <input
+              id="quickConvertText"
+              type="text"
+              name="quickConvertText"
+              [(ngModel)]="quickConvertText"
+              [disabled]="quickConvertLoading()"
+              placeholder='e.g. Convert 500 USD to EUR'
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              class="speech-mic-button"
+              [class.listening]="speechListening()"
+              [disabled]="quickConvertLoading() || speechTranscribing() || !speechSupported"
+              (click)="toggleSpeechRecognition()"
+              [title]="speechListening() ? 'Stop recording' : (speechSupported ? 'Record your conversion request' : 'Audio recording is not supported in this browser')"
+              aria-label="Record a conversion request with the microphone"
+            >
+              {{ speechListening() ? '⏹' : (speechTranscribing() ? '…' : '🎙️') }}
+            </button>
+          </div>
         </div>
+        <button class="secondary quick-ai-button" type="submit" [disabled]="quickConvertLoading() || !quickConvertText.trim()">
+          {{ quickConvertLoading() ? 'Reading…' : 'Use text' }}
+        </button>
+        @if (speechTranscribing()) {
+          <div class="speech-status">Transcribing your recording…</div>
+        }
       </form>
 
       @if (quickConvertError()) {
         <div class="error-msg">{{ quickConvertError() }}</div>
       }
+      @if (quickConvertResult()) {
+        <div class="error-msg" style="background:var(--success-bg); color:var(--success-text);">
+          {{ quickConvertResult() }}
+        </div>
+      }
       <div class="hint-text">
-        Choose Amount + From + To for a direct conversion, or type a natural-language request and press Enter to let AI fill the conversion fields. The AI forecast for the pair opens automatically when you convert. The currency lists are loaded from the same live source as the full converter.
+        Choose Amount + From + To for a direct conversion, or type or speak a natural-language request and let AI fill the conversion fields. Click the microphone to speak your request. The currency lists are loaded from the live currency source.
       </div>
 
       <!-- ===== Currency conversion overview ===== -->
@@ -134,12 +152,18 @@ import { firstValueFrom } from 'rxjs';
             <div class="stat-label">Total Conversions</div>
           </div>
           <div class="stat-card">
+          
             <div class="stat-value">{{ stats().favoritePair }}</div>
-            <div class="stat-label">Most Used Pair</div>
+            <br>
+            <br>
+            <div class="stat-label">current conversion</div>
           </div>
           <div class="stat-card">
+          
             <div class="stat-value">{{ stats().favoriteCurrency }}</div>
-            <div class="stat-label">Most Used Currency</div>
+            <br>
+            <br>
+           <div class="stat-label">Last Currency</div>
           </div>
           <div class="stat-card">
             <div class="stat-value">{{ stats().lastConversion }}</div>
@@ -180,8 +204,7 @@ import { firstValueFrom } from 'rxjs';
           </div>
         } @else {
           <div class="empty-state">
-            No conversions yet. Use Quick Convert above or head to the
-            <a [routerLink]="['/currency']">currency converter</a> to make your first one.
+            No conversions yet. Use Quick Convert above to make your first one.
           </div>
         }
       }
@@ -249,10 +272,10 @@ import { firstValueFrom } from 'rxjs';
       }
     </div>
 
-    <footer class="app-footer">Developed by <strong>Dushyant Kaushik</strong> – SRM Institute of Science and Technology, Chennai</footer>
+    <footer class="app-footer">Created and Developed by <strong>Dushyant Kaushik</strong></footer>
   `,
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   tasks = signal<Task[]>([]);
   loading = signal(true);
   adding = signal(false);
@@ -270,7 +293,14 @@ export class DashboardComponent implements OnInit {
   quickToCurrency = 'EUR';
   quickConvertText = '';
   quickConvertError = signal<string | null>(null);
+  quickConvertResult = signal<string | null>(null);
   quickConvertLoading = signal(false);
+  speechListening = signal(false);
+  speechSupported = false;
+  speechTranscribing = signal(false);
+  private mediaRecorder: MediaRecorder | null = null;
+  private mediaStream: MediaStream | null = null;
+  private speechChunks: Blob[] = [];
 
   quickCurrencies = signal<CurrencyList>({});
   quickCurrencyCodes = signal<string[]>([]);
@@ -301,9 +331,9 @@ export class DashboardComponent implements OnInit {
     private conversionService: ConversionService,
     private aiConversionService: AiConversionService,
     private currencyService: CurrencyService,
-    private forecast: ForecastService,
     public theme: ThemeService,
-    private router: Router
+    private router: Router,
+    private zone: NgZone
   ) {}
 
   ngOnInit() {
@@ -311,6 +341,116 @@ export class DashboardComponent implements OnInit {
     this.fetchTasks();
     this.fetchConversionOverview();
     this.loadQuickCurrencies();
+    this.initializeSpeechRecognition();
+  }
+
+  private initializeSpeechRecognition() {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+    this.speechSupported = typeof navigator.mediaDevices?.getUserMedia === 'function'
+      && typeof MediaRecorder !== 'undefined';
+  }
+
+  private getRecordingMimeType(): string {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+    ];
+    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || 'audio/webm';
+  }
+
+  async toggleSpeechRecognition() {
+    if (!this.speechSupported) {
+      this.quickConvertError.set('Audio recording is not supported in this browser. Please use a recent version of Chrome or Edge.');
+      return;
+    }
+    this.quickConvertError.set(null);
+    if (this.speechListening()) {
+      this.stopAudioRecording();
+      return;
+    }
+    try {
+      this.quickConvertText = '';
+      this.speechChunks = [];
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = this.getRecordingMimeType();
+      this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
+      this.mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) this.speechChunks.push(event.data);
+      };
+      this.mediaRecorder.onstart = () => this.zone.run(() => this.speechListening.set(true));
+      this.mediaRecorder.onerror = () => {
+        this.zone.run(() => {
+          this.quickConvertError.set('The browser could not record audio. Check your microphone and try again.');
+          this.speechListening.set(false);
+        });
+        this.releaseAudioStream();
+      };
+      this.mediaRecorder.onstop = () => {
+        const audio = new Blob(this.speechChunks, { type: mimeType });
+        this.releaseAudioStream();
+        this.mediaRecorder = null;
+        this.zone.run(() => this.speechListening.set(false));
+        if (audio.size === 0) {
+          this.zone.run(() => this.quickConvertError.set('No audio was recorded. Please speak and try again.'));
+          return;
+        }
+        void this.transcribeAndParseAudio(audio);
+      };
+      this.mediaRecorder.start();
+    } catch (err: any) {
+      console.error('Could not start audio recording:', err);
+      this.releaseAudioStream();
+      this.mediaRecorder = null;
+      this.speechListening.set(false);
+      this.quickConvertError.set(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone access was blocked. Allow microphone access for this site and try again.'
+          : 'Could not start the microphone. Check your Windows microphone settings and try again.'
+      );
+    }
+  }
+
+  private stopAudioRecording() {
+    if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
+      this.releaseAudioStream();
+      this.speechListening.set(false);
+      return;
+    }
+    this.mediaRecorder.stop();
+  }
+
+  private releaseAudioStream() {
+    this.mediaStream?.getTracks().forEach((track) => track.stop());
+    this.mediaStream = null;
+  }
+
+  private async transcribeAndParseAudio(audio: Blob) {
+    this.speechTranscribing.set(true);
+    this.quickConvertLoading.set(true);
+    this.quickConvertError.set(null);
+    try {
+      const transcription = await firstValueFrom(this.aiConversionService.transcribeConversionAudio(audio));
+      const text = transcription.text.trim();
+      if (!text) throw new Error('No speech was detected in the recording.');
+      this.quickConvertText = text;
+      await this.submitQuickConvertText();
+    } catch (err: any) {
+      console.error('Audio transcription/parsing failed:', err);
+      this.quickConvertError.set(err?.error?.error || err?.message || 'Could not understand the recording.');
+    } finally {
+      this.speechTranscribing.set(false);
+      this.quickConvertLoading.set(false);
+    }
+  }
+
+  ngOnDestroy() {
+    this.releaseAudioStream();
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try { this.mediaRecorder.stop(); } catch { /* already stopping */ }
+    }
+    this.mediaRecorder = null;
   }
 
   private loadQuickCurrencies() {
@@ -356,7 +496,7 @@ export class DashboardComponent implements OnInit {
     this.statsLoading.set(true);
     const [stats, history] = await Promise.all([
       this.conversionService.getStats(),
-      this.conversionService.getHistory(5),
+      this.conversionService.getHistory(),
     ]);
     this.stats.set(stats);
     this.recentConversions.set(history);
@@ -364,15 +504,13 @@ export class DashboardComponent implements OnInit {
   }
 
   /**
-   * Understands the free-text request with Claude first (handles loose
-   * phrasing like "change 20 bucks into yen"). If the AI call fails for any
-   * reason (network issue, missing API key, etc.) it falls back to the
-   * plain regex parser, so Quick Convert still works without AI configured.
-   * Either way, once amount/from/to are known, it redirects to /currency
-   * with those values attached, exactly as before (and opens the AI forecast).
+   * Handles the structured conversion form directly on this dashboard.
+   * The separate separate currency route has been removed, so conversion never
+   * navigates away from the main UI.
    */
   async submitQuickConvert() {
     this.quickConvertError.set(null);
+    this.quickConvertResult.set(null);
 
     const amount = Number(this.quickAmount);
     const from = this.quickFromCurrency?.trim().toUpperCase();
@@ -396,35 +534,12 @@ export class DashboardComponent implements OnInit {
     }
 
     this.quickConvertText = `Convert ${amount} ${from} to ${to}`;
-    this.quickConvertLoading.set(true);
-
-    try {
-      // Validate the structured request through the existing AI endpoint.
-      // If AI is unavailable, the structured values are still sent to the
-      // converter by the fallback below.
-      const ai = await firstValueFrom(this.aiConversionService.parseConversionRequest(this.quickConvertText));
-      const aiFrom = ai.from?.trim().toUpperCase();
-      const aiTo = ai.to?.trim().toUpperCase();
-      const aiAmount = Number(ai.amount);
-
-      if (Number.isFinite(aiAmount) && aiAmount > 0 && this.quickCurrencyCodes().includes(aiFrom) && this.quickCurrencyCodes().includes(aiTo) && aiFrom !== aiTo) {
-        this.quickAmount = aiAmount;
-        this.quickFromCurrency = aiFrom;
-        this.quickToCurrency = aiTo;
-        this.goToConverter(aiAmount, aiFrom, aiTo);
-        return;
-      }
-    } catch (err: any) {
-      console.warn('AI parsing failed, using structured dashboard values:', err?.error?.error || err);
-    } finally {
-      this.quickConvertLoading.set(false);
-    }
-
-    this.goToConverter(amount, from, to);
+    await this.performQuickConversion(amount, from, to);
   }
 
   async submitQuickConvertText() {
     this.quickConvertError.set(null);
+    this.quickConvertResult.set(null);
     const text = this.quickConvertText.trim();
     if (!text) {
       this.quickConvertError.set('Type a conversion request first.');
@@ -438,7 +553,9 @@ export class DashboardComponent implements OnInit {
       const from = ai.from?.trim().toUpperCase();
       const to = ai.to?.trim().toUpperCase();
 
-      if (!Number.isFinite(amount) || amount <= 0 || !this.quickCurrencyCodes().includes(from) || !this.quickCurrencyCodes().includes(to)) {
+      if (!Number.isFinite(amount) || amount <= 0 ||
+          !this.quickCurrencyCodes().includes(from) ||
+          !this.quickCurrencyCodes().includes(to)) {
         throw new Error('AI returned an unsupported currency or amount.');
       }
       if (from === to) {
@@ -448,11 +565,9 @@ export class DashboardComponent implements OnInit {
       this.quickAmount = amount;
       this.quickFromCurrency = from;
       this.quickToCurrency = to;
-      this.goToConverter(amount, from, to);
+      await this.performQuickConversion(amount, from, to);
       return;
     } catch (err: any) {
-      // The local parser keeps text entry useful even if the Express/Claude
-      // endpoint is temporarily unavailable.
       const parsed = parseCurrencyRequest(text);
       if (parsed) {
         const from = this.resolveQuickCurrency(parsed.fromRaw);
@@ -461,11 +576,40 @@ export class DashboardComponent implements OnInit {
           this.quickAmount = parsed.amount;
           this.quickFromCurrency = from;
           this.quickToCurrency = to;
-          this.goToConverter(parsed.amount, from, to);
+          await this.performQuickConversion(parsed.amount, from, to);
           return;
         }
       }
       this.quickConvertError.set('Could not understand that request. Try: Convert 500 USD to EUR');
+    } finally {
+      this.quickConvertLoading.set(false);
+    }
+  }
+
+  private async performQuickConversion(amount: number, from: string, to: string) {
+    this.quickConvertLoading.set(true);
+    try {
+      const response = await firstValueFrom(this.currencyService.convert(amount, from, to));
+      const result = response.rates[to];
+
+      if (!Number.isFinite(result)) {
+        throw new Error('No conversion rate returned.');
+      }
+
+      await this.conversionService.logConversion(amount, from, to, result);
+      this.quickConvertResult.set(
+        `${amount.toLocaleString()} ${from} = ${result.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} ${to}`
+      );
+
+      // Refresh the overview so the new conversion immediately appears in
+      // the same dashboard UI.
+      await this.fetchConversionOverview();
+    } catch (err) {
+      console.error('Quick conversion failed:', err);
+      this.quickConvertError.set('Conversion failed. The rates API may be temporarily unavailable.');
     } finally {
       this.quickConvertLoading.set(false);
     }
@@ -481,17 +625,6 @@ export class DashboardComponent implements OnInit {
 
     const partial = Object.entries(this.quickCurrencies()).find(([, name]) => name.toLowerCase().includes(normalized));
     return partial ? partial[0] : null;
-  }
-
-  private goToConverter(amount: number, from: string, to: string) {
-    // Every Quick Convert path (dropdowns or AI text) ends up here, so this is
-    // the one place that opens the AI forecast. The panel lives in
-    // AppComponent, so it stays open after the navigation below.
-    this.forecast.open(from, to);
-
-    this.router.navigate(['/currency'], {
-      queryParams: { amount, from, to, auto: '1' },
-    });
   }
 
   addTask() {
@@ -552,7 +685,6 @@ export class DashboardComponent implements OnInit {
   }
 
   async logout() {
-    this.forecast.close(); // don't leave the panel floating over the login page
     await this.supabase.signOut();
     this.router.navigate(['/login']);
   }

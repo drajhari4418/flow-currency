@@ -1,18 +1,12 @@
 import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ThemeService } from './services/theme.service';
-import { ForecastPanelComponent } from './components/forecast-panel/forecast-panel.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ForecastPanelComponent],
-  // The forecast panel lives here (not inside a page) so it stays open when
-  // the Dashboard's Convert button navigates to /currency.
-  template: `
-    <router-outlet></router-outlet>
-    <app-forecast-panel></app-forecast-panel>
-  `,
+  imports: [RouterOutlet],
+  template: `<router-outlet></router-outlet>`,
 })
 export class AppComponent {
   // Injecting ThemeService here (even unused directly) ensures it's
