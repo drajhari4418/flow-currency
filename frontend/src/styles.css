@@ -132,3 +132,39 @@ table.history-table tbody tr { border-top: 1px solid var(--border); }
 .history-table .delete:hover { background: var(--error-bg); color: var(--error-text); }
 .history-table .delete:disabled { opacity: 0.55; cursor: wait; }
 .quick-currency-status { position: absolute; z-index: 20; top: calc(100% + 5px); left: 0; right: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); color: var(--text-muted); font-size: 12px; box-shadow: 0 8px 24px var(--shadow); }
+
+
+
+
+
+
+/* Append to the end of frontend/src/styles.css — styles the "Due tomorrow"
+   banner added to the dashboard. */
+.reminder-banner {
+  background: var(--medium-bg);
+  border: 1px solid var(--medium);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+.reminder-banner-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--medium);
+  margin-bottom: 6px;
+}
+.reminder-banner-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.reminder-banner-list li {
+  font-size: 13.5px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
