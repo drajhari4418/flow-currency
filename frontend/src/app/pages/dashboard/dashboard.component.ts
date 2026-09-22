@@ -34,6 +34,24 @@ import { firstValueFrom } from 'rxjs';
         <div class="error-msg">{{ errorMsg() }}</div>
       }
 
+      <!-- ===== Due-tomorrow reminder banner (in-app half of the reminder
+           feature — the backend's daily job covers the email half). ===== -->
+      @if (!loading() && dueTomorrowTasks().length > 0) {
+        <div class="reminder-banner" role="status">
+          <div class="reminder-banner-title">⏰ Due tomorrow ({{ dueTomorrowTasks().length }})</div>
+          <ul class="reminder-banner-list">
+            @for (t of dueTomorrowTasks(); track t.id) {
+              <li>
+                {{ t.title }}
+                <span class="badge" [class.badge-low]="t.priority === 'low'" [class.badge-medium]="t.priority === 'medium'" [class.badge-high]="t.priority === 'high'">
+                  {{ t.priority }}
+                </span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+
       <!-- ===== Quick Convert — parsed by Claude (Anthropic API) on the
            backend, with a plain-regex parser as an offline/error fallback. -->
       <div class="section-title" style="display:flex; align-items:center; gap:8px;">
@@ -313,6 +331,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
   progressPercent = computed(() => {
     const total = this.tasks().length;
     return total === 0 ? 0 : Math.round((this.completedCount() / total) * 100);
+  });
+
+  // Same-day-local "tomorrow", compared against due_date (a plain
+  // YYYY-MM-DD string from Postgres) — avoids timezone drift from
+  // parsing due_date into a Date and re-comparing Date objects.
+  dueTomorrowTasks = computed(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const y = tomorrow.getFullYear();
+    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const d = String(tomorrow.getDate()).padStart(2, '0');
+    const tomorrowStr = `${y}-${m}-${d}`;
+
+    return this.tasks().filter((t) => !t.is_complete && t.due_date === tomorrowStr);
   });
 
   stats = signal<ConversionStats>({
