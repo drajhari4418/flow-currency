@@ -1,9 +1,8 @@
-import { Component, NgZone, OnDestroy, OnInit, computed, signal } from '@angular/core';
+import { Component, NgZone, OnDestroy, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { SupabaseService } from '../../services/supabase.service';
-import { TaskService, Task, TaskPriority } from '../../services/task.service';
 import { ConversionService, ConversionStats, ConversionRow } from '../../services/conversion.service';
 import { ThemeService } from '../../services/theme.service';
 import { AiConversionService } from '../../services/ai-conversion.service';
@@ -23,6 +22,7 @@ import { firstValueFrom } from 'rxjs';
           <div class="email">{{ userEmail }}</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
+          <a class="secondary" style="text-decoration:none;" [routerLink]="['/tasks']">📋 My Tasks</a>
           <button class="theme-toggle" (click)="theme.toggle()" [title]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
             {{ theme.isDark() ? '☀️' : '🌙' }}
           </button>
@@ -32,24 +32,6 @@ import { firstValueFrom } from 'rxjs';
 
       @if (errorMsg()) {
         <div class="error-msg">{{ errorMsg() }}</div>
-      }
-
-      <!-- ===== Due-tomorrow reminder banner (in-app half of the reminder
-           feature — the backend's daily job covers the email half). ===== -->
-      @if (!loading() && dueTomorrowTasks().length > 0) {
-        <div class="reminder-banner" role="status">
-          <div class="reminder-banner-title">⏰ Due tomorrow ({{ dueTomorrowTasks().length }})</div>
-          <ul class="reminder-banner-list">
-            @for (t of dueTomorrowTasks(); track t.id) {
-              <li>
-                {{ t.title }}
-                <span class="badge" [class.badge-low]="t.priority === 'low'" [class.badge-medium]="t.priority === 'medium'" [class.badge-high]="t.priority === 'high'">
-                  {{ t.priority }}
-                </span>
-              </li>
-            }
-          </ul>
-        </div>
       }
 
       <!-- ===== Quick Convert — parsed by Claude (Anthropic API) on the
@@ -226,82 +208,13 @@ import { firstValueFrom } from 'rxjs';
           </div>
         }
       }
-
-      <!-- ===== Tasks ===== -->
-      <div class="section-title" style="margin-top:32px;">Tasks</div>
-
-      @if (!loading() && tasks().length > 0) {
-        <div class="progress-wrap">
-          <div class="progress-label">
-            <span>{{ completedCount() }} of {{ tasks().length }} tasks completed</span>
-            <span>{{ progressPercent() }}%</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" [style.width.%]="progressPercent()"></div>
-          </div>
-        </div>
-      }
-
-      <form class="task-form" (ngSubmit)="addTask()">
-        <input
-          type="text"
-          name="newTitle"
-          placeholder="What needs doing?"
-          [(ngModel)]="newTitle"
-          required
-        />
-        <select name="newPriority" [(ngModel)]="newPriority" class="priority-select">
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        <input type="date" name="newDueDate" [(ngModel)]="newDueDate" class="due-date-input" />
-        <button class="primary" style="width:auto;" type="submit" [disabled]="adding()">
-          {{ adding() ? 'Adding…' : 'Add' }}
-        </button>
-      </form>
-
-      @if (loading()) {
-        <div class="empty-state">Loading tasks…</div>
-      } @else if (tasks().length === 0) {
-        <div class="empty-state">No tasks yet — add your first one above.</div>
-      } @else {
-        <div class="task-card-grid">
-          @for (task of tasks(); track task.id) {
-            <div class="task-card" [class.done]="task.is_complete" [class.priority-low]="task.priority === 'low'" [class.priority-medium]="task.priority === 'medium'" [class.priority-high]="task.priority === 'high'">
-              <div class="task-card-top">
-                <input type="checkbox" [checked]="task.is_complete" (change)="toggle(task)" />
-                <span class="task-title">{{ task.title }}</span>
-                <button class="delete" (click)="remove(task)" title="Delete task">✕</button>
-              </div>
-              <div class="task-card-meta">
-                <span class="badge" [class.badge-low]="task.priority === 'low'" [class.badge-medium]="task.priority === 'medium'" [class.badge-high]="task.priority === 'high'">
-                  {{ task.priority }}
-                </span>
-                @if (task.due_date) {
-                  <span class="badge badge-due" [class.badge-overdue]="isOverdue(task)">
-                    {{ isOverdue(task) ? 'Overdue · ' : '' }}{{ task.due_date | date:'MMM d' }}
-                  </span>
-                }
-              </div>
-            </div>
-          }
-        </div>
-      }
     </div>
 
     <footer class="app-footer">Created and Developed by <strong>Dushyant Kaushik</strong></footer>
   `,
 })
 export class DashboardComponent implements OnInit, OnDestroy {
-  tasks = signal<Task[]>([]);
-  loading = signal(true);
-  adding = signal(false);
   errorMsg = signal<string | null>(null);
-
-  newTitle = '';
-  newPriority: TaskPriority = 'medium';
-  newDueDate: string | null = null;
 
   // Dashboard Quick Convert has two fixed fields: Amount and To.
   // The source currency remains USD by default, matching the converter page's
@@ -327,26 +240,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   userEmail: string | null = null;
 
-  completedCount = computed(() => this.tasks().filter((t) => t.is_complete).length);
-  progressPercent = computed(() => {
-    const total = this.tasks().length;
-    return total === 0 ? 0 : Math.round((this.completedCount() / total) * 100);
-  });
-
-  // Same-day-local "tomorrow", compared against due_date (a plain
-  // YYYY-MM-DD string from Postgres) — avoids timezone drift from
-  // parsing due_date into a Date and re-comparing Date objects.
-  dueTomorrowTasks = computed(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const y = tomorrow.getFullYear();
-    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
-    const d = String(tomorrow.getDate()).padStart(2, '0');
-    const tomorrowStr = `${y}-${m}-${d}`;
-
-    return this.tasks().filter((t) => !t.is_complete && t.due_date === tomorrowStr);
-  });
-
   stats = signal<ConversionStats>({
     total: 0,
     favoritePair: '—',
@@ -358,7 +251,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
   statsLoading = signal(true);
 
   constructor(
-    private taskService: TaskService,
     private supabase: SupabaseService,
     private conversionService: ConversionService,
     private aiConversionService: AiConversionService,
@@ -370,7 +262,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.userEmail = this.supabase.currentUserEmail();
-    this.fetchTasks();
     this.fetchConversionOverview();
     this.loadQuickCurrencies();
     this.initializeSpeechRecognition();
@@ -510,20 +401,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   }
 
-  fetchTasks() {
-    this.loading.set(true);
-    this.taskService.list().subscribe({
-      next: (tasks) => {
-        this.tasks.set(tasks);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.errorMsg.set('Could not load tasks. Is the backend running?');
-        this.loading.set(false);
-      },
-    });
-  }
-
   async fetchConversionOverview() {
     this.statsLoading.set(true);
     const [stats, history] = await Promise.all([
@@ -659,33 +536,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return partial ? partial[0] : null;
   }
 
-  addTask() {
-    if (!this.newTitle.trim()) return;
-    this.adding.set(true);
-
-    this.taskService.create(this.newTitle.trim(), this.newPriority, this.newDueDate).subscribe({
-      next: (task) => {
-        this.tasks.update((list) => [task, ...list]);
-        this.newTitle = '';
-        this.newPriority = 'medium';
-        this.newDueDate = null;
-        this.adding.set(false);
-      },
-      error: () => {
-        this.errorMsg.set('Could not add task.');
-        this.adding.set(false);
-      },
-    });
-  }
-
-  toggle(task: Task) {
-    this.taskService.toggleComplete(task).subscribe({
-      next: (updated) => {
-        this.tasks.update((list) => list.map((t) => (t.id === updated.id ? updated : t)));
-      },
-    });
-  }
-
   removeConversion(row: ConversionRow) {
     if (!confirm('Delete this conversion entry?')) return;
 
@@ -699,21 +549,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
       }
       this.deletingConversionId.set(null);
     });
-  }
-
-  remove(task: Task) {
-    this.taskService.delete(task.id).subscribe({
-      next: () => {
-        this.tasks.update((list) => list.filter((t) => t.id !== task.id));
-      },
-    });
-  }
-
-  isOverdue(task: Task): boolean {
-    if (!task.due_date || task.is_complete) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return new Date(task.due_date) < today;
   }
 
   async logout() {

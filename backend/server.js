@@ -5,7 +5,7 @@ const cron = require('node-cron');
 
 const tasksRouter = require('./routes/tasks');
 const aiRouter = require('./routes/ai');
-const { sendDueTomorrowReminders } = require('./services/reminders');
+const { sendDueDateReminders } = require('./services/reminders');
 
 const app = express();
 
@@ -34,7 +34,7 @@ app.post('/api/tasks-internal/send-reminders', async (req, res) => {
   if (!process.env.REMINDER_TEST_KEY || req.query.key !== process.env.REMINDER_TEST_KEY) {
     return res.status(404).end();
   }
-  const result = await sendDueTomorrowReminders();
+  const result = await sendDueDateReminders();
   res.json(result);
 });
 
@@ -49,11 +49,11 @@ app.listen(PORT, () => {
   console.log(`TaskFlow backend running on http://localhost:${PORT}`);
   console.log('Speech-to-text: browser-local Whisper (no paid API key required)');
 
-  // Every day at 08:00 server time: email anyone with an incomplete task
-  // due the following day. See README-REMINDERS.md for the Render caveat
-  // about free-tier services spinning down.
+  // Every day at 08:00 server time: runs BOTH reminder stages — emails
+  // anyone with an incomplete task due tomorrow, and anyone with one due
+  // today. See README-REMINDERS.md for the Render free-tier caveat.
   cron.schedule('0 8 * * *', () => {
-    sendDueTomorrowReminders();
+    sendDueDateReminders();
   });
   console.log('Task due-date reminder job scheduled for 08:00 daily.');
 });

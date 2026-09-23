@@ -168,3 +168,28 @@ table.history-table tbody tr { border-top: 1px solid var(--border); }
   align-items: center;
   gap: 8px;
 }
+
+/* Wraps the "due today" / "due tomorrow" banners together on the Tasks page. */
+.reminder-banner-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reminder-banner-today {
+  background: var(--high-bg);
+  border-color: var(--high);
+}
+.reminder-banner-today .reminder-banner-title {
+  color: var(--high);
+}
+
+/* Fade-out animation for a task card mid auto-removal (checked off, about
+   to be deleted a few seconds later) or already excluded from view. */
+.task-card {
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.task-card.pending-removal {
+  opacity: 0;
+  transform: scale(0.95) translateY(-6px);
+  pointer-events: none;
+}
