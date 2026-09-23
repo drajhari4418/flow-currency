@@ -52,8 +52,8 @@ const OVERDUE_DELETE_GRACE_DAYS = 3;
                 @for (t of dueTodayTasks(); track t.id) {
                   <li>
                     {{ t.title }}
-                    <span class="badge" [class.badge-low]="t.priority === 'low'" [class.badge-medium]="t.priority === 'medium'" [class.badge-high]="t.priority === 'high'">
-                      {{ t.priority }}
+                    <span class="badge" [class.badge-low]="effectivePriority(t) === 'low'" [class.badge-medium]="effectivePriority(t) === 'medium'" [class.badge-high]="effectivePriority(t) === 'high'">
+                      {{ effectivePriority(t) }}
                     </span>
                   </li>
                 }
@@ -67,8 +67,8 @@ const OVERDUE_DELETE_GRACE_DAYS = 3;
                 @for (t of dueTomorrowTasks(); track t.id) {
                   <li>
                     {{ t.title }}
-                    <span class="badge" [class.badge-low]="t.priority === 'low'" [class.badge-medium]="t.priority === 'medium'" [class.badge-high]="t.priority === 'high'">
-                      {{ t.priority }}
+                    <span class="badge" [class.badge-low]="effectivePriority(t) === 'low'" [class.badge-medium]="effectivePriority(t) === 'medium'" [class.badge-high]="effectivePriority(t) === 'high'">
+                      {{ effectivePriority(t) }}
                     </span>
                   </li>
                 }
@@ -113,7 +113,8 @@ const OVERDUE_DELETE_GRACE_DAYS = 3;
         Checked-off tasks fade out and are removed automatically a few seconds
         later. Tasks left overdue for more than {{ overdueGraceDays }} days are
         cleaned up automatically too — there's no undo, so use due dates you
-        actually mean.
+        actually mean. A task's color/badge can also escalate as its due date
+        gets close, without changing the priority you actually picked.
       </div>
 
       @if (loading()) {
@@ -127,9 +128,9 @@ const OVERDUE_DELETE_GRACE_DAYS = 3;
               class="task-card"
               [class.done]="task.is_complete"
               [class.pending-removal]="pendingRemovalIds().has(task.id)"
-              [class.priority-low]="task.priority === 'low'"
-              [class.priority-medium]="task.priority === 'medium'"
-              [class.priority-high]="task.priority === 'high'"
+              [class.priority-low]="effectivePriority(task) === 'low'"
+              [class.priority-medium]="effectivePriority(task) === 'medium'"
+              [class.priority-high]="effectivePriority(task) === 'high'"
             >
               <div class="task-card-top">
                 <input type="checkbox" [checked]="task.is_complete" (change)="toggle(task)" />
@@ -137,8 +138,14 @@ const OVERDUE_DELETE_GRACE_DAYS = 3;
                 <button class="delete" (click)="remove(task)" title="Delete task">✕</button>
               </div>
               <div class="task-card-meta">
-                <span class="badge" [class.badge-low]="task.priority === 'low'" [class.badge-medium]="task.priority === 'medium'" [class.badge-high]="task.priority === 'high'">
-                  {{ task.priority }}
+                <span
+                  class="badge"
+                  [class.badge-low]="effectivePriority(task) === 'low'"
+                  [class.badge-medium]="effectivePriority(task) === 'medium'"
+                  [class.badge-high]="effectivePriority(task) === 'high'"
+                  [title]="effectivePriority(task) !== task.priority ? ('Escalated from ' + task.priority + ' — due date is close') : ''"
+                >
+                  {{ effectivePriority(task) }}
                 </span>
                 @if (task.due_date) {
                   <span class="badge badge-due" [class.badge-overdue]="isOverdue(task)">
@@ -332,6 +339,31 @@ export class TasksComponent implements OnInit, OnDestroy {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return new Date(task.due_date) < today;
+  }
+
+  /**
+   * Display-only priority: escalates (never downgrades) the priority shown
+   * on a task's badge/border as its due date gets close, without touching
+   * task.priority itself — what you picked when creating the task stays
+   * exactly as stored. Not a stated rule, just a reasonable default:
+   *   - overdue or due today/tomorrow -> at least "high"
+   *   - due within the next 4 days    -> at least "medium"
+   *   - otherwise, or no due date, or already complete -> your own choice
+   */
+  effectivePriority(task: Task): TaskPriority {
+    if (task.is_complete || !task.due_date) return task.priority;
+
+    const due = new Date(task.due_date);
+    due.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+
+    const rank: Record<TaskPriority, number> = { low: 0, medium: 1, high: 2 };
+    const dateRank = diffDays <= 1 ? 2 : diffDays <= 4 ? 1 : 0;
+    const effectiveRank = Math.max(rank[task.priority], dateRank);
+
+    return (Object.keys(rank) as TaskPriority[]).find((p) => rank[p] === effectiveRank)!;
   }
 
   private formatLocalDate(d: Date): string {

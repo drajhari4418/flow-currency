@@ -62,3 +62,19 @@ frontend/src/app/pages/tasks/tasks.component.ts       NEW
 frontend/src/app/pages/dashboard/dashboard.component.ts UPDATED (tasks removed, link added)
 frontend/src/styles.css                                UPDATED (appended, nothing removed)
 ```
+
+## 5. `backend/.env` was found genuinely blank on Supabase fields
+This isn't a reminders-only problem — with SUPABASE_URL/ANON_KEY/SERVICE_ROLE_KEY
+blank, the backend can't verify auth tokens or read/write tasks at all. The
+`.env` shipped in this zip is a clean template with corrected SMTP comments
+(host vs. email address, real app password vs. placeholder) — fill in your
+real Supabase values from Project Settings -> API before anything else works.
+
+## 6. Priority now escalates visually based on due date
+`frontend/src/app/pages/tasks/tasks.component.ts` has a new
+`effectivePriority(task)` method: it never changes what's stored in the
+database (your manually-chosen priority is untouched), it only changes what
+color/badge is *displayed* — escalating toward "high" as a task's due date
+gets close or passes, never downgrading. The thresholds (1 day = high,
+4 days = medium) aren't a stated requirement, just a default — they're
+inline in that method if you want to tune them.
