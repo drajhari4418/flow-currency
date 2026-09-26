@@ -110,20 +110,22 @@ const OVERDUE_DELETE_GRACE_DAYS = 3;
       </form>
 
       <div class="hint-text" style="margin-bottom:16px;">
-        Checked-off tasks fade out and are removed automatically a few seconds
-        later. Tasks left overdue for more than {{ overdueGraceDays }} days are
-        cleaned up automatically too — there's no undo, so use due dates you
-        actually mean. A task's color/badge can also escalate as its due date
-        gets close, without changing the priority you actually picked.
+        Checked-off tasks fade out of this list a few seconds after you check
+        them — they stay saved (marked complete) in the background, just no
+        longer shown here. Tasks left overdue for more than
+        {{ overdueGraceDays }} days are genuinely deleted, though — there's
+        no undo for those, so use due dates you actually mean. A task's
+        color/badge can also escalate as its due date gets close, without
+        changing the priority you actually picked.
       </div>
 
       @if (loading()) {
         <div class="empty-state">Loading tasks…</div>
-      } @else if (tasks().length === 0) {
+      } @else if (visibleTasks().length === 0) {
         <div class="empty-state">No tasks yet — add your first one above.</div>
       } @else {
         <div class="task-card-grid">
-          @for (task of tasks(); track task.id) {
+          @for (task of visibleTasks(); track task.id) {
             <div
               class="task-card"
               [class.done]="task.is_complete"
@@ -169,7 +171,7 @@ export class TasksComponent implements OnInit, OnDestroy {
   errorMsg = signal<string | null>(null);
 
   newTitle = '';
-  newPriority: TaskPriority = 'medium';
+  newPriority: TaskPriority = 'low';
   newDueDate: string | null = null;
 
   overdueGraceDays = OVERDUE_DELETE_GRACE_DAYS;
@@ -179,6 +181,15 @@ export class TasksComponent implements OnInit, OnDestroy {
   // something to animate before the task actually disappears from the list.
   pendingRemovalIds = signal<Set<string>>(new Set());
   private pendingRemovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  // What's actually rendered in the grid: incomplete tasks, plus anything
+  // still mid fade-out (checked off within the last few seconds). A task
+  // that finished its fade simply stops appearing here — it's never
+  // deleted, so completedCount/progressPercent below (which read the full
+  // `tasks()` list) keep counting it toward your history.
+  visibleTasks = computed(() =>
+    this.tasks().filter((t) => !t.is_complete || this.pendingRemovalIds().has(t.id))
+  );
 
   completedCount = computed(() => this.tasks().filter((t) => t.is_complete).length);
   progressPercent = computed(() => {
@@ -261,7 +272,7 @@ export class TasksComponent implements OnInit, OnDestroy {
       next: (task) => {
         this.tasks.update((list) => [task, ...list]);
         this.newTitle = '';
-        this.newPriority = 'medium';
+        this.newPriority = 'low';
         this.newDueDate = null;
         this.adding.set(false);
       },
@@ -291,18 +302,12 @@ export class TasksComponent implements OnInit, OnDestroy {
 
     this.pendingRemovalIds.update((set) => new Set(set).add(id));
 
+    // After the fade plays, just drop it from pendingRemovalIds — the task
+    // stays exactly as-is in Supabase (still marked complete). visibleTasks
+    // stops rendering it from this point on since it's no longer in the
+    // pending set and it's complete, but nothing is ever deleted here.
     const timer = setTimeout(() => {
-      this.taskService.delete(id).subscribe({
-        next: () => {
-          this.tasks.update((list) => list.filter((t) => t.id !== id));
-          this.clearPendingState(id);
-        },
-        error: () => {
-          // Deletion failed — undo the fade so the card isn't stuck
-          // looking half-removed while still actually existing.
-          this.clearPendingState(id);
-        },
-      });
+      this.clearPendingState(id);
     }, COMPLETE_REMOVE_DELAY_MS);
 
     this.pendingRemovalTimers.set(id, timer);

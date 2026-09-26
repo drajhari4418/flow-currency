@@ -193,3 +193,22 @@ table.history-table tbody tr { border-top: 1px solid var(--border); }
   transform: scale(0.95) translateY(-6px);
   pointer-events: none;
 }
+
+/* Pulsing glow on the dashboard's "My Tasks" button, repeating every 4s,
+   to draw the eye back to pending tasks. */
+.glow-button {
+  animation: glow-pulse 4s ease-in-out infinite;
+}
+@keyframes glow-pulse {
+  0%, 80%, 100% {
+    box-shadow: 0 0 0 rgba(79, 70, 229, 0);
+  }
+  90% {
+    box-shadow: 0 0 12px 4px var(--primary);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glow-button {
+    animation: none;
+  }
+}

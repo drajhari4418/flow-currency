@@ -22,7 +22,7 @@ import { firstValueFrom } from 'rxjs';
           <div class="email">{{ userEmail }}</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
-          <a class="secondary" style="text-decoration:none;" [routerLink]="['/tasks']">📋 My Tasks</a>
+          <a class="secondary glow-button" style="text-decoration:none;" [routerLink]="['/tasks']">📋 My Tasks</a>
           <button class="theme-toggle" (click)="theme.toggle()" [title]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
             {{ theme.isDark() ? '☀️' : '🌙' }}
           </button>
@@ -175,7 +175,7 @@ import { firstValueFrom } from 'rxjs';
           <div class="history-table-wrap">
             <table class="history-table">
               <thead>
-                <tr><th>Date</th><th>Amount</th><th>From</th><th>To</th><th>Result</th><th>Action</th></tr>
+                <tr><th>Date</th><th>Amount</th><th>From</th><th>To</th><th>Result</th></tr>
               </thead>
               <tbody>
                 @for (row of recentConversions(); track row.id) {
@@ -185,18 +185,6 @@ import { firstValueFrom } from 'rxjs';
                     <td>{{ row.from_currency }}</td>
                     <td>{{ row.to_currency }}</td>
                     <td>{{ row.result | number:'1.2-2' }}</td>
-                    <td>
-                      <button
-                        type="button"
-                        class="delete"
-                        (click)="removeConversion(row)"
-                        [disabled]="deletingConversionId() === row.id"
-                        title="Delete conversion"
-                        aria-label="Delete conversion"
-                      >
-                        {{ deletingConversionId() === row.id ? '…' : '✕' }}
-                      </button>
-                    </td>
                   </tr>
                 }
               </tbody>
@@ -247,7 +235,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     lastConversion: '—',
   });
   recentConversions = signal<ConversionRow[]>([]);
-  deletingConversionId = signal<number | null>(null);
   statsLoading = signal(true);
 
   constructor(
@@ -534,21 +521,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     const partial = Object.entries(this.quickCurrencies()).find(([, name]) => name.toLowerCase().includes(normalized));
     return partial ? partial[0] : null;
-  }
-
-  removeConversion(row: ConversionRow) {
-    if (!confirm('Delete this conversion entry?')) return;
-
-    this.deletingConversionId.set(row.id);
-    this.conversionService.deleteConversion(row.id).then((success) => {
-      if (success) {
-        this.recentConversions.update((list) => list.filter((item) => item.id !== row.id));
-        this.fetchConversionOverview();
-      } else {
-        this.errorMsg.set('Could not delete the conversion entry.');
-      }
-      this.deletingConversionId.set(null);
-    });
   }
 
   async logout() {
